@@ -3,37 +3,144 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rear Camera Test</title>
+  <title>Selfie Cam - Step 2 (Face Detection)</title>
   <style>
     body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-    video { width: 100%; max-height: 80vh; background: #222; }
+    video { width: 100%; max-height: 60vh; background: #222; }
     button { font-size: 20px; padding: 14px 28px; margin: 16px; border-radius: 12px; border: none; }
-    #status { padding: 8px; }
+    #status { padding: 8px; font-size: 16px; }
+    #info { font-size: 22px; line-height: 1.6; padding: 8px; font-family: monospace; }
   </style>
 </head>
 <body>
-  <button id="startBtn">카메라 켜기</button>
-  <div id="status">버튼을 눌러 후면 카메라를 켜세요</div>
-  <!-- playsinline + muted are required for video to play inline on iPhone Safari -->
+  <button id="startBtn">시작</button>
+  <div id="status">시작 버튼을 누르세요</div>
+  <!-- playsinline + muted are required for inline video on iPhone Safari -->
   <video id="video" autoplay playsinline muted></video>
+  <div id="info"></div>
 
-  <script>
-    const btn = document.getElementById('startBtn');
-    const video = document.getElementById('video');
+  <script type="module">
+    // MediaPipe Tasks Vision (runs fully on-device, in the browser)
+    import { FaceLandmarker, FilesetResolver }
+      from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+    const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+    const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+
+    const btn    = document.getElementById('startBtn');
+    const video  = document.getElementById('video');
     const status = document.getElementById('status');
+    const info   = document.getElementById('info');
 
-    btn.addEventListener('click', async () => {
+    let landmarker = null;
+    let audioCtx = null;
+    let faceVisible = false;
+    let lastVideoTime = -1;
+
+    // ---- Sound: short beep using Web Audio (no audio files needed) ----
+    function beep(freq = 880, durationMs = 150) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.value = 0.3;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + durationMs / 1000);
+    }
+
+    // ---- Load the face model (try GPU first, fall back to CPU) ----
+    async function createLandmarker() {
+      const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+      const options = (delegate) => ({
+        baseOptions: { modelAssetPath: MODEL_URL, delegate },
+        runningMode: "VIDEO",
+        numFaces: 1,
+        outputFaceBlendshapes: true,              // 52 expression scores
+        outputFacialTransformationMatrixes: true  // head pose matrix
+      });
       try {
-        // facingMode "environment" = rear camera
+        return await FaceLandmarker.createFromOptions(fileset, options("GPU"));
+      } catch (e) {
+        console.log("GPU failed, using CPU", e);
+        return await FaceLandmarker.createFromOptions(fileset, options("CPU"));
+      }
+    }
+
+    // ---- 4x4 matrix (column-major) -> yaw / pitch / roll in degrees ----
+    function matrixToAngles(m) {
+      const r = (row, col) => m[col * 4 + row];
+      const toDeg = (rad) => rad * 180 / Math.PI;
+      const pitch = toDeg(Math.atan2(r(2, 1), r(2, 2)));  // up / down
+      const yaw   = toDeg(Math.asin(-r(2, 0)));            // left / right
+      const roll  = toDeg(Math.atan2(r(1, 0), r(0, 0)));  // head tilt
+      return { yaw, pitch, roll };
+    }
+
+    // ---- Read one expression score by name ----
+    function score(blendshapes, name) {
+      const c = blendshapes.find(x => x.categoryName === name);
+      return c ? c.score : 0;
+    }
+
+    // ---- Main loop: run detection on every new video frame ----
+    function loop() {
+      if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        const result = landmarker.detectForVideo(video, performance.now());
+        const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
+
+        if (hasFace) {
+          if (!faceVisible) beep(880);   // high beep: face found
+          faceVisible = true;
+
+          const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
+          const bs = result.faceBlendshapes[0].categories;
+          const smile = (score(bs, "mouthSmileLeft") + score(bs, "mouthSmileRight")) / 2;
+          const blink = (score(bs, "eyeBlinkLeft") + score(bs, "eyeBlinkRight")) / 2;
+
+          info.innerHTML =
+            `얼굴: ✅<br>` +
+            `좌우(yaw): ${yaw.toFixed(0)}°<br>` +
+            `상하(pitch): ${pitch.toFixed(0)}°<br>` +
+            `기울기(roll): ${roll.toFixed(0)}°<br>` +
+            `미소: ${(smile * 100).toFixed(0)}%<br>` +
+            `눈 감음: ${(blink * 100).toFixed(0)}%`;
+        } else {
+          if (faceVisible) beep(330);    // low beep: face lost
+          faceVisible = false;
+          info.innerHTML = `얼굴: ❌ (찾는 중)`;
+        }
+      }
+      requestAnimationFrame(loop);
+    }
+
+    // ---- Start button: sound + camera + model ----
+    btn.addEventListener('click', async () => {
+      btn.style.display = 'none';
+      try {
+        // iPhone only allows sound after a tap, so create audio here
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        await audioCtx.resume();
+
+        status.textContent = '카메라 켜는 중...';
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' } },
           audio: false
         });
         video.srcObject = stream;
-        status.textContent = '후면 카메라 켜짐 ✅';
-        btn.style.display = 'none';
+        await video.play();
+
+        status.textContent = '얼굴 인식 모델 불러오는 중... (처음엔 10초 정도)';
+        landmarker = await createLandmarker();
+
+        status.textContent = '준비 완료 ✅ 얼굴을 비춰보세요';
+        beep(660, 100);
+        loop();
       } catch (err) {
         status.textContent = '실패: ' + err.name + ' - ' + err.message;
+        btn.style.display = 'inline-block';
       }
     });
   </script>
