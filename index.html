@@ -60,12 +60,8 @@
         outputFaceBlendshapes: true,              // 52 expression scores
         outputFacialTransformationMatrixes: true  // head pose matrix
       });
-      try {
-        return await FaceLandmarker.createFromOptions(fileset, options("GPU"));
-      } catch (e) {
-        console.log("GPU failed, using CPU", e);
-        return await FaceLandmarker.createFromOptions(fileset, options("CPU"));
-      }
+      // CPU only: on some phones the GPU mode returns frozen / wrong values
+      return await FaceLandmarker.createFromOptions(fileset, options("CPU"));
     }
 
     // ---- 4x4 matrix (column-major) -> yaw / pitch / roll in degrees ----
@@ -85,9 +81,21 @@
     }
 
     // ---- Main loop: run detection on every new video frame ----
+    let frameCount = 0;
     function loop() {
+      try {
+        step();
+      } catch (err) {
+        // Show the error on screen instead of silently stopping
+        status.textContent = '오류: ' + err.name + ' - ' + err.message;
+      }
+      requestAnimationFrame(loop);
+    }
+
+    function step() {
       if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
+        frameCount++;
         const result = landmarker.detectForVideo(video, performance.now());
         const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
 
@@ -112,8 +120,8 @@
           faceVisible = false;
           info.innerHTML = `얼굴: ❌ (찾는 중)`;
         }
+        info.innerHTML += `<br><small>v2.1 / frame ${frameCount}</small>`;
       }
-      requestAnimationFrame(loop);
     }
 
     // ---- Start button: sound + camera + model ----
