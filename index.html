@@ -98,9 +98,14 @@
     .mascot[data-face="warm"] .f-warm { display: inline; }
     .mascot[data-face="love"] .f-love { display: inline; }
     .mascot[data-face="care"] .f-care { display: inline; }
-    #startMascot { display: flex; justify-content: center; animation: bob 2.4s ease-in-out infinite; }
-    #startMascot .mascot { width: 150px; height: 150px; }
-    #startMascot .mascot + .mascot { margin-left: -14px; }
+    #startMascot { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; max-width: 370px; }
+    #startMascot .pair { display: flex; animation: bob 2.6s ease-in-out infinite; }
+    #startMascot .pair:nth-child(2) { animation-delay: -.5s; }
+    #startMascot .pair:nth-child(3) { animation-delay: -1s; }
+    #startMascot .pair:nth-child(4) { animation-delay: -1.5s; }
+    #startMascot .pair:nth-child(5) { animation-delay: -2s; }
+    #startMascot .mascot { width: 82px; height: 82px; }
+    #startMascot .mascot + .mascot { margin-left: -8px; }
     @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
     #miniMascot { display: flex; flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
     #miniMascot .mascot { width: 54px; height: 54px; }
@@ -201,7 +206,7 @@
   </div>
 
   <div id="start">
-    <div id="startMascot"><div class="mascot" id="startGirl"></div><div class="mascot" id="startBoy"></div></div>
+    <div id="startMascot"></div>
     <h1>YJ Selfie Camera</h1>
     <p>후면 카메라를 얼굴 쪽으로 돌리고<br>음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요.<br>볼륨을 켜주세요.</p>
     <button id="startBtn">시작</button>
@@ -224,7 +229,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.5";
+    const VERSION   = "v6.6";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -963,21 +968,23 @@
       setFace($(prefix + "Girl"), face);
       setFace($(prefix + "Boy"), BOY_FACE[face]);
     }
-    for (const prefix of ["start", "mini"]) {
-      $(prefix + "Girl").innerHTML = mascotSVG("girl");
-      $(prefix + "Boy").innerHTML = mascotSVG("boy");
-    }
+    $("miniGirl").innerHTML = mascotSVG("girl");
+    $("miniBoy").innerHTML = mascotSVG("boy");
     setFaces("mini", "idle");
 
-    // Start screen: the monkeys cycle through their moods; tap them to change at once
-    let startFace = 0;
-    function nextStartFace() {
-      setFaces("start", FACES[startFace]);
-      startFace = (startFace + 1) % FACES.length;
+    // Start screen: five couple "stickers", one per mood
+    for (const face of ["excited", "sulk", "angry", "sorry", "sleep"]) {
+      const pair = document.createElement("div");
+      pair.className = "pair";
+      const g = document.createElement("div"), b = document.createElement("div");
+      g.className = b.className = "mascot";
+      g.innerHTML = mascotSVG("girl");
+      b.innerHTML = mascotSVG("boy");
+      setFace(g, face);
+      setFace(b, BOY_FACE[face]);
+      pair.append(g, b);
+      $("startMascot").appendChild(pair);
     }
-    nextStartFace();
-    let startFaceTimer = setInterval(nextStartFace, 2400);
-    $("startMascot").addEventListener("click", nextStartFace);
 
     let shotUntil = 0, wakeUntil = 0, sulkUntil = 0, wasSleeping = false;
     function mascotShot() {
@@ -1001,14 +1008,11 @@
         startMsg.textContent = "얼굴 인식 준비 중… (처음엔 10초 정도)";
         landmarker = await createLandmarker();
 
-        clearInterval(startFaceTimer);
         startScreen.style.display = "none";
         beep(660, 100);
         loop();
       } catch (err) {
         startMsg.textContent = "실패: " + err.name + " - " + err.message;
-        clearInterval(startFaceTimer);
-        setFaces("start", "sorry");
         startBtn.disabled = false;
       }
     });
