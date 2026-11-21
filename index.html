@@ -116,10 +116,12 @@
     #startMascot .pair > div { display: flex; animation: bob 2.8s ease-in-out infinite; }
     #startMascot .mascot + .mascot { margin-left: -8%; }
     @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    #miniMascot { display: flex; flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
-    #miniMascot .mascot { width: 54px; height: 54px; }
-    #miniMascot .mascot + .mascot { margin-left: -8px; }
-    #miniMascot.show { animation: hop .5s ease-out; }
+    /* Peeking couple: heads sit behind the frame's top edge, which cuts them off below the nose */
+    #miniMascot { position: fixed; left: 0; right: 0; top: 0; height: 0; overflow: hidden; pointer-events: none; }
+    #miniMascot .peeker { position: absolute; bottom: 0; transition: transform .25s ease-out; }
+    #miniMascot .mascot { width: 100%; height: 100%; }
+    #miniMascot.show .peeker { animation: peekhop .5s ease-out; }
+    @keyframes peekhop { 0%, 100% { transform: translateY(0); } 35% { transform: translateY(-14%); } }
     @keyframes hop { 0% { transform: translateY(0) scale(1); } 35% { transform: translateY(-12px) scale(1.12); }
       100% { transform: translateY(0) scale(1); } }
 
@@ -175,8 +177,12 @@
   <div class="shade top"></div>
   <div class="shade bottom"></div>
 
+  <!-- The couple peeking over the top edge of the camera frame (only eyes and nose show) -->
+  <div id="miniMascot">
+    <div class="peeker" id="peekGirl"><div class="mascot" id="miniGirl"></div></div>
+    <div class="peeker" id="peekBoy"><div class="mascot" id="miniBoy"></div></div>
+  </div>
   <div id="topbar">
-    <div id="miniMascot"><div class="mascot" id="miniGirl"></div><div class="mascot" id="miniBoy"></div></div>
     <div id="status" class="pill" hidden>준비 중</div>
     <div id="spacer"></div>
     <button id="debugBtn" class="pill" aria-label="숫자 보기">i</button>
@@ -230,7 +236,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.21";
+    const VERSION   = "v6.22";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -315,9 +321,29 @@
       g.style.height = fh + "px";
       g.style.left = left + "px";
       g.style.top = top + "px";
+      layoutPeek(top, W);
       const ix = left + fw * (1 - 1 / dzoom) / 2, iy = top + fh * (1 - 1 / dzoom) / 2;
       video.style.transform = dzoom > 1 ? `scale(${dzoom})` : "";
       video.style.clipPath = dzoom > 1 ? `inset(${iy}px ${ix}px ${iy}px ${ix}px)` : "";
+    }
+    // In the mascot drawing (200 x 200), the top of the head is near y = 20 and the nose at y = 95.
+    // The strip's bottom edge (= the frame's top edge) cuts each head at y = CUT, just under the nose.
+    function layoutPeek(stripH, W) {
+      const peek = $("miniMascot");
+      peek.style.height = stripH + "px";
+      peek.style.display = stripH < 40 ? "none" : "";
+      const CUT = 102, TOP = 14;
+      let size = stripH * 200 / (CUT - TOP);          // head fills the black strip
+      size = Math.min(size, W * 0.62);                 // two heads must fit side by side
+      const hidden = size * (200 - CUT) / 200;         // part of the drawing below the edge
+      const place = (id, centerX) => {
+        const el = $(id);
+        el.style.width = el.style.height = size + "px";
+        el.style.left = (centerX - size / 2) + "px";
+        el.style.bottom = (-hidden) + "px";
+      };
+      place("peekGirl", W * 0.29);
+      place("peekBoy", W * 0.71);
     }
     window.addEventListener("resize", layoutGrid);
     video.addEventListener("loadedmetadata", layoutGrid);
