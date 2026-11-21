@@ -182,7 +182,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.1";
+    const VERSION   = "v5.2";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -194,7 +194,7 @@
       tolY: 0.035,         // allowed up/down error (fraction of frame height)
       tolX: 0.07,          // allowed left/right error (fraction of frame width)
       chinMaxY: 0.56,      // chin must stay above this (otherwise the face is too close)
-      minFaceHeight: 0.10, // face height must be at least 10% of the frame height
+      minFaceHeight: 0.22, // face height must be at least 22% of the frame height
       angleScale: 40,      // degrees are divided by this before comparing
       stillMs: 300,        // compare with the face 300 ms ago ...
       stillMax: 0.25,      // ... and it must have changed less than this (not moving)
@@ -423,8 +423,8 @@
         // One spoken hint at a time, most important first
         if (!okSize) hint = "조금 더 가까이";
         else if (!okFar) hint = "조금 더 멀리";
-        else if (!okNose) hint = dy > 0 ? "폰을 조금 내려요" : "폰을 조금 올려요";
-        else if (!okCenter) hint = dx < 0 ? "폰을 오른쪽으로" : "폰을 왼쪽으로";
+        else if (!okNose) hint = dy > 0 ? "폰 위치를 아래로" : "폰 위치를 위로";
+        else if (!okCenter) hint = dx < 0 ? "폰 위치를 오른쪽으로" : "폰 위치를 왼쪽으로";
         framed = !hint;
 
         // Is the face holding still? Compare with the sample from ~300 ms ago
@@ -470,7 +470,6 @@
 
       if (!hasFace) {
         setStatus("얼굴을 찾는 중");
-        if (now - noFaceSince > 2500) say("얼굴이 안 보여요", now);
       } else if (hint) {
         setStatus(hint);
         say(hint, now);
