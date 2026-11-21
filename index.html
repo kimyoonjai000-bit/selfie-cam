@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Selfie Cam - Step 2 (Face Detection)</title>
+  <title>Selfie Cam</title>
   <style>
     body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
     video { width: 100%; max-height: 60vh; background: #222; }
@@ -15,6 +15,7 @@
 <body>
   <button id="startBtn">시작</button>
   <div id="status">시작 버튼을 누르세요</div>
+  <select id="camSelect" style="display:none; font-size:16px; padding:8px; margin:8px;"></select>
   <!-- playsinline + muted are required for inline video on iPhone Safari -->
   <video id="video" autoplay playsinline muted></video>
   <div id="info"></div>
@@ -36,6 +37,66 @@
     let audioCtx = null;
     let faceVisible = false;
     let lastVideoTime = -1;
+    let currentStream = null;
+    let camInfo = '';
+    const camSelect = document.getElementById('camSelect');
+    const CAM_KEY = 'selfiecam.deviceId';
+
+    // ---- Camera: open a rear camera at high resolution ----
+    async function startCamera(deviceId) {
+      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+      const v = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+      if (deviceId) v.deviceId = { exact: deviceId };
+      else v.facingMode = { ideal: 'environment' };
+      currentStream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+      video.srcObject = currentStream;
+      await video.play();
+      const s = currentStream.getVideoTracks()[0].getSettings();
+      camInfo = `${s.width}x${s.height}`;
+      return s.deviceId;
+    }
+
+    function loadSavedCam() {
+      try { return localStorage.getItem(CAM_KEY); } catch (e) { return null; }
+    }
+    function saveCam(id) {
+      try { localStorage.setItem(CAM_KEY, id); } catch (e) { /* ignore */ }
+    }
+
+    // ---- List rear cameras (phones often have wide / ultra-wide / tele) ----
+    async function setupCameraList(activeId) {
+      const all = (await navigator.mediaDevices.enumerateDevices())
+        .filter(d => d.kind === 'videoinput');
+      let cams = all.filter(d => /back|rear|environment|후면/i.test(d.label));
+      if (cams.length === 0) cams = all;
+
+      camSelect.innerHTML = '';
+      cams.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Camera ${i + 1}`;
+        camSelect.appendChild(opt);
+      });
+      if (cams.length > 1) camSelect.style.display = 'inline-block';
+
+      // Pick: saved choice first, else Android main camera ("camera2 0")
+      const saved = loadSavedCam();
+      let want = cams.find(d => d.deviceId === saved);
+      if (!want) want = cams.find(d => /camera2 0,/i.test(d.label));
+      if (want && want.deviceId !== activeId) {
+        activeId = await startCamera(want.deviceId);
+      }
+      camSelect.value = activeId;
+    }
+
+    camSelect.addEventListener('change', async () => {
+      try {
+        await startCamera(camSelect.value);
+        saveCam(camSelect.value);
+      } catch (err) {
+        status.textContent = '카메라 전환 실패: ' + err.name + ' - ' + err.message;
+      }
+    });
 
     // ---- Sound: short beep using Web Audio (no audio files needed) ----
     function beep(freq = 880, durationMs = 150) {
@@ -93,6 +154,7 @@
     }
 
     function step() {
+      if (video.readyState < 2) return;   // camera is switching, no frame yet
       if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
         frameCount++;
@@ -120,7 +182,7 @@
           faceVisible = false;
           info.innerHTML = `얼굴: ❌ (찾는 중)`;
         }
-        info.innerHTML += `<br><small>v2.1 / frame ${frameCount}</small>`;
+        info.innerHTML += `<br><small>v2.2 / ${camInfo} / frame ${frameCount}</small>`;
       }
     }
 
@@ -133,12 +195,8 @@
         await audioCtx.resume();
 
         status.textContent = '카메라 켜는 중...';
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false
-        });
-        video.srcObject = stream;
-        await video.play();
+        const activeId = await startCamera(null);
+        await setupCameraList(activeId);
 
         status.textContent = '얼굴 인식 모델 불러오는 중... (처음엔 10초 정도)';
         landmarker = await createLandmarker();
