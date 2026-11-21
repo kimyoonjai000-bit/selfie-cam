@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.9";
+    const VERSION   = "v5.10";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -542,23 +542,35 @@
 
     // ---- Copy the current video frame into a JPEG (stays on the phone) ----
     function takePhoto() {
+      // 1) Grab the frame right now
       const c = document.createElement("canvas");
       c.width = video.videoWidth;
       c.height = video.videoHeight;
       c.getContext("2d").drawImage(video, 0, 0);
+
+      // 2) Show a small thumbnail immediately (fast)
+      const t = document.createElement("canvas");
+      t.width = 160;
+      t.height = Math.round(160 * c.height / c.width);
+      t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+      const photo = { blob: null, name: `selfie_${Date.now()}.jpg`, url: t.toDataURL("image/jpeg", 0.7) };
+      const img = document.createElement("img");
+      img.src = photo.url;
+      img.alt = photo.name;
+      photo.img = img;
+      img.addEventListener("click", () => openViewer(photo));
+      const hint = $("emptyHint");
+      if (hint) hint.remove();
+      gallery.prepend(img);
+      photoCount++;
+      photoCountEl.textContent = photoCount;
+
+      // 3) Make the full-size JPEG in the background (slower)
       c.toBlob((blob) => {
         if (!blob) return;
-        photoCount++;
-        photoCountEl.textContent = photoCount;
-        const photo = { blob, name: `selfie_${Date.now()}.jpg`, url: URL.createObjectURL(blob) };
-        const img = document.createElement("img");
-        img.src = photo.url;
-        img.alt = photo.name;
-        photo.img = img;
-        img.addEventListener("click", () => openViewer(photo));
-        const hint = $("emptyHint");
-        if (hint) hint.remove();
-        gallery.prepend(img);
+        photo.blob = blob;
+        photo.url = URL.createObjectURL(blob);
+        if (viewing === photo) viewerImg.src = photo.url;
       }, "image/jpeg", 0.95);
     }
 
@@ -572,14 +584,14 @@
     $("delBtn").addEventListener("click", () => {
       if (!viewing) return;
       viewing.img.remove();
-      URL.revokeObjectURL(viewing.url);
+      if (viewing.blob) URL.revokeObjectURL(viewing.url);
       photoCount--;
       photoCountEl.textContent = photoCount;
       viewing = null;
       viewer.classList.remove("show");
     });
     $("saveBtn").addEventListener("click", () => {
-      if (!viewing) return;
+      if (!viewing || !viewing.blob) return;   // full-size file not ready yet
       const a = document.createElement("a");
       a.href = viewing.url;
       a.download = viewing.name;
@@ -588,7 +600,7 @@
       a.remove();
     });
     $("shareBtn").addEventListener("click", async () => {
-      if (!viewing) return;
+      if (!viewing || !viewing.blob) return;
       const file = new File([viewing.blob], viewing.name, { type: "image/jpeg" });
       if (!(navigator.canShare && navigator.canShare({ files: [file] }))) {
         $("viewerNote").textContent = "이 브라우저는 공유를 지원하지 않아요. 저장을 눌러주세요.";
