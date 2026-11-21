@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.7";
+    const VERSION   = "v5.8";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -202,7 +202,7 @@
       stillMs: 300,        // compare with the face 300 ms ago ...
       stillMax: 0.25,      // ... and it must have changed less than this (not moving)
       changeMin: 0.60,     // must differ this much from the last photo
-      minGapMs: 3000,      // while the composition stays right, shoot again every 3 s
+      minGapMs: 1500,      // while the composition stays right, shoot again every 1.5 s
       maxPhotos: 40        // stop after this many photos (phone memory)
     };
     const NOSE_TIP = 1, CHIN = 152;   // MediaPipe face landmark indices
