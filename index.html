@@ -9,6 +9,7 @@
     video { width: 100%; max-height: 60vh; background: #222; }
     button { font-size: 20px; padding: 14px 28px; margin: 16px; border-radius: 12px; border: none; }
     #status { padding: 8px; font-size: 16px; }
+    #gallery img { width: 30%; margin: 1%; border-radius: 8px; }
     #info { font-size: 22px; line-height: 1.6; padding: 8px; font-family: monospace; }
   </style>
 </head>
@@ -19,6 +20,8 @@
   <!-- playsinline + muted are required for inline video on iPhone Safari -->
   <video id="video" autoplay playsinline muted></video>
   <div id="info"></div>
+  <div id="hint" style="display:none; font-size:14px; padding:4px;">사진을 누르면 저장/공유할 수 있어요</div>
+  <div id="gallery"></div>
 
   <script type="module">
     // MediaPipe Tasks Vision (runs fully on-device, in the browser)
@@ -40,7 +43,7 @@
     let currentStream = null;
     let camInfo = '';
     const camSelect = document.getElementById('camSelect');
-    const CAM_KEY = 'selfiecam.deviceId';
+    const CAM_KEY = 'selfiecam.deviceId.v3';
 
     // ---- Camera: open a rear camera at high resolution ----
     async function startCamera(deviceId) {
@@ -79,10 +82,12 @@
       });
       if (cams.length > 1) camSelect.style.display = 'inline-block';
 
-      // Pick: saved choice first, else Android main camera ("camera2 0")
+      // Pick: saved choice first, else the ultra-wide rear camera
+      // (iPhone label contains "Ultra Wide" / "초광각", Samsung uses "camera2 2")
       const saved = loadSavedCam();
       let want = cams.find(d => d.deviceId === saved);
-      if (!want) want = cams.find(d => /camera2 0,/i.test(d.label));
+      if (!want) want = cams.find(d => /ultra|초광각/i.test(d.label));
+      if (!want) want = cams.find(d => /camera2 2,/i.test(d.label));
       if (want && want.deviceId !== activeId) {
         activeId = await startCamera(want.deviceId);
       }
@@ -153,37 +158,136 @@
       requestAnimationFrame(loop);
     }
 
+    // ---- Auto-capture rules (simple fixed thresholds for now) ----
+    const RULES = {
+      smileMin: 0.5,     // smile score must be at least 50%
+      blinkMax: 0.4,     // eyes-closed score must be below 40%
+      yawMax: 25,        // left/right head angle within +-25 degrees
+      pitchMax: 25,      // up/down head angle within +-25 degrees
+      holdMs: 500,       // conditions must hold this long
+      cooldownMs: 3000   // rest time after each photo
+    };
+    let state = 'watching';   // 'watching' | 'countdown'
+    let okSince = 0;
+    let cooldownUntil = 0;
+    let photoCount = 0;
+    const gallery = document.getElementById('gallery');
+    const hint = document.getElementById('hint');
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const mark = (ok) => ok ? '✅' : '❌';
+
     function step() {
       if (video.readyState < 2) return;   // camera is switching, no frame yet
-      if (video.currentTime !== lastVideoTime) {
-        lastVideoTime = video.currentTime;
-        frameCount++;
-        const result = landmarker.detectForVideo(video, performance.now());
-        const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
+      if (video.currentTime === lastVideoTime) return;
+      lastVideoTime = video.currentTime;
+      frameCount++;
 
-        if (hasFace) {
-          if (!faceVisible) beep(880);   // high beep: face found
-          faceVisible = true;
+      const now = performance.now();
+      const result = landmarker.detectForVideo(video, now);
+      const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
+      let allOk = false;
+      let html;
 
-          const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
-          const bs = result.faceBlendshapes[0].categories;
-          const smile = (score(bs, "mouthSmileLeft") + score(bs, "mouthSmileRight")) / 2;
-          const blink = (score(bs, "eyeBlinkLeft") + score(bs, "eyeBlinkRight")) / 2;
+      if (hasFace) {
+        if (!faceVisible) beep(880);   // high beep: face found
+        faceVisible = true;
 
-          info.innerHTML =
-            `얼굴: ✅<br>` +
-            `좌우(yaw): ${yaw.toFixed(0)}°<br>` +
-            `상하(pitch): ${pitch.toFixed(0)}°<br>` +
-            `기울기(roll): ${roll.toFixed(0)}°<br>` +
-            `미소: ${(smile * 100).toFixed(0)}%<br>` +
-            `눈 감음: ${(blink * 100).toFixed(0)}%`;
-        } else {
-          if (faceVisible) beep(330);    // low beep: face lost
-          faceVisible = false;
-          info.innerHTML = `얼굴: ❌ (찾는 중)`;
-        }
-        info.innerHTML += `<br><small>v2.2 / ${camInfo} / frame ${frameCount}</small>`;
+        const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
+        const bs = result.faceBlendshapes[0].categories;
+        const smile = (score(bs, "mouthSmileLeft") + score(bs, "mouthSmileRight")) / 2;
+        const blink = (score(bs, "eyeBlinkLeft") + score(bs, "eyeBlinkRight")) / 2;
+
+        const okSmile = smile >= RULES.smileMin;
+        const okEyes  = blink <  RULES.blinkMax;
+        const okYaw   = Math.abs(yaw)   <= RULES.yawMax;
+        const okPitch = Math.abs(pitch) <= RULES.pitchMax;
+        allOk = okSmile && okEyes && okYaw && okPitch;
+
+        html =
+          `얼굴: ✅<br>` +
+          `좌우(yaw): ${yaw.toFixed(0)}° ${mark(okYaw)}<br>` +
+          `상하(pitch): ${pitch.toFixed(0)}° ${mark(okPitch)}<br>` +
+          `기울기(roll): ${roll.toFixed(0)}°<br>` +
+          `미소: ${(smile * 100).toFixed(0)}% ${mark(okSmile)}<br>` +
+          `눈 감음: ${(blink * 100).toFixed(0)}% ${mark(okEyes)}`;
+      } else {
+        if (faceVisible) beep(330);    // low beep: face lost
+        faceVisible = false;
+        html = `얼굴: ❌ (찾는 중)`;
       }
+
+      // Decide whether to start the countdown
+      let label = '조건 기다리는 중';
+      if (state === 'countdown') {
+        label = '곧 촬영! 📸';
+      } else if (now < cooldownUntil) {
+        label = '잠시 쉬는 중';
+        okSince = 0;
+      } else if (!allOk) {
+        okSince = 0;
+      } else if (!okSince) {
+        okSince = now;
+      } else if (now - okSince >= RULES.holdMs) {
+        okSince = 0;
+        countdownAndShoot();
+      }
+
+      html += `<br>상태: ${label}<br>찍은 사진: ${photoCount}장`;
+      html += `<br><small>v3.0 / ${camInfo} / frame ${frameCount}</small>`;
+      info.innerHTML = html;
+    }
+
+    // ---- Beep-beep-beep, then take the photo ----
+    async function countdownAndShoot() {
+      state = 'countdown';
+      try {
+        for (let i = 0; i < 3; i++) {
+          beep(1000, 120);
+          await sleep(450);
+        }
+        if (faceVisible) {
+          takePhoto();
+          beep(1500, 60);                       // shutter sound: two quick clicks
+          setTimeout(() => beep(1500, 60), 120);
+        } else {
+          beep(220, 300);                       // cancelled: face left the frame
+        }
+      } finally {
+        cooldownUntil = performance.now() + RULES.cooldownMs;
+        state = 'watching';
+      }
+    }
+
+    // ---- Copy the current video frame into a JPEG (stays on the phone) ----
+    function takePhoto() {
+      const c = document.createElement('canvas');
+      c.width = video.videoWidth;
+      c.height = video.videoHeight;
+      c.getContext('2d').drawImage(video, 0, 0);
+      c.toBlob((blob) => {
+        if (!blob) return;
+        photoCount++;
+        const name = `selfie_${Date.now()}.jpg`;
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(blob);
+        img.alt = name;
+        img.addEventListener('click', () => savePhoto(blob, name));
+        gallery.prepend(img);
+        hint.style.display = 'block';
+      }, 'image/jpeg', 0.95);
+    }
+
+    // ---- Tap a photo: share sheet if available, otherwise download ----
+    async function savePhoto(blob, name) {
+      const file = new File([blob], name, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); } catch (e) { /* user cancelled */ }
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
     }
 
     // ---- Start button: sound + camera + model ----
