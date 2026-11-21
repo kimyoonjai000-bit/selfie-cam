@@ -81,13 +81,13 @@
       padding: 12px 14px; border-radius: 14px; font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace; text-align: left; }
     #debug.show { display: block; }
 
-    /* Mascot (original character: a hand-drawn baby seal holding a camera) */
+    /* Mascot (original character: a goofy, shameless golden monkey holding a camera) */
     .mascot svg { width: 100%; height: 100%; display: block; overflow: visible; }
-    .mascot .eyes-happy, .mascot .heart { display: none; }
-    .mascot.happy .eyes-open { display: none; }
-    .mascot.happy .eyes-happy { display: inline; }
-    .mascot.happy .blush { opacity: .85; }
-    .mascot.shot .heart { display: inline; }
+    .mascot .f-happy, .mascot .f-shot { display: none; }
+    .mascot.happy .f-idle { display: none; }
+    .mascot.happy .f-happy { display: inline; }
+    .mascot.shot .f-idle, .mascot.shot .f-happy { display: none; }
+    .mascot.shot .f-shot { display: inline; }
     .mascot { display: block; }
     #startMascot { width: 150px; height: 150px; animation: bob 2.4s ease-in-out infinite; }
     @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
@@ -212,7 +212,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.1";
+    const VERSION   = "v6.2";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -733,42 +733,66 @@
       }
     });
 
-    // ---- Mascot drawing (original baby seal, hand-drawn look) ----
+    // ---- Mascot drawing (original goofy monkey, hand-drawn look) ----
+    // Three faces: idle (blank, tongue out), happy (huge grin), shot (smug wink + heart)
     function mascotSVG() {
-      const ink = "#3d3232";
+      const ink = "#3a2a22", fur = "#f1ae45", pale = "#ffe8c9", pink = "#ff9dbb";
       return `<svg viewBox="0 0 200 200" aria-hidden="true">
-        <g filter="url(#rough)" stroke="${ink}" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M70 176 q-22 10 -34 -2 q14 -8 30 -10 Z" fill="#efe6dc"/>
-          <path d="M130 176 q22 10 34 -2 q-14 -8 -30 -10 Z" fill="#efe6dc"/>
-          <ellipse cx="100" cy="146" rx="54" ry="42" fill="#fbf4ec"/>
-          <path d="M52 132 q-24 6 -26 26 q16 2 30 -8 Z" fill="#fbf4ec"/>
-          <path d="M148 132 q24 6 26 26 q-16 2 -30 -8 Z" fill="#fbf4ec"/>
-          <ellipse cx="100" cy="84" rx="64" ry="56" fill="#fbf4ec"/>
-          <rect x="74" y="136" width="52" height="34" rx="8" fill="#ff9dbb"/>
-          <rect x="84" y="129" width="16" height="9" rx="3" fill="#ff9dbb"/>
-          <circle cx="100" cy="153" r="11" fill="#fff"/>
+        <g filter="url(#rough)" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M146 166 q44 -2 40 -40 q-4 -24 -24 -14 q-12 8 0 18" fill="none" stroke="${ink}" stroke-width="13"/>
+          <path d="M146 166 q44 -2 40 -40 q-4 -24 -24 -14 q-12 8 0 18" fill="none" stroke="${fur}" stroke-width="6.5"/>
+          <g stroke="${ink}" stroke-width="3.6">
+            <ellipse cx="72" cy="184" rx="20" ry="11" fill="${pale}"/>
+            <ellipse cx="128" cy="184" rx="20" ry="11" fill="${pale}"/>
+            <ellipse cx="100" cy="150" rx="46" ry="38" fill="${fur}"/>
+            <circle cx="34" cy="80" r="21" fill="${fur}"/>
+            <circle cx="166" cy="80" r="21" fill="${fur}"/>
+            <circle cx="34" cy="80" r="10" fill="${pink}" stroke-width="2.4"/>
+            <circle cx="166" cy="80" r="10" fill="${pink}" stroke-width="2.4"/>
+            <path d="M84 36 q2 -20 12 -6 q4 -22 12 -4 q8 -14 8 6" fill="${fur}"/>
+            <ellipse cx="100" cy="82" rx="62" ry="54" fill="${fur}"/>
+            <ellipse cx="100" cy="104" rx="42" ry="27" fill="${pale}" stroke-width="3"/>
+            <rect x="74" y="140" width="52" height="34" rx="8" fill="${pink}"/>
+            <rect x="84" y="133" width="16" height="9" rx="3" fill="${pink}"/>
+            <circle cx="100" cy="157" r="11" fill="#fff"/>
+            <ellipse cx="68" cy="158" rx="10" ry="12" fill="${pale}"/>
+            <ellipse cx="132" cy="158" rx="10" ry="12" fill="${pale}"/>
+          </g>
         </g>
-        <circle cx="100" cy="153" r="5.5" fill="${ink}"/>
-        <ellipse cx="76" cy="46" rx="7" ry="4.5" fill="#d9cfc6"/>
-        <ellipse cx="96" cy="38" rx="5" ry="3.5" fill="#d9cfc6"/>
-        <ellipse cx="118" cy="44" rx="6" ry="4" fill="#d9cfc6"/>
-        <ellipse class="blush" cx="58" cy="102" rx="12" ry="8" fill="#ff9dbb" opacity=".5"/>
-        <ellipse class="blush" cx="142" cy="102" rx="12" ry="8" fill="#ff9dbb" opacity=".5"/>
-        <g class="eyes-open" fill="${ink}">
-          <circle cx="76" cy="86" r="6"/><circle cx="124" cy="86" r="6"/>
-          <circle cx="78" cy="84" r="1.8" fill="#fff"/><circle cx="126" cy="84" r="1.8" fill="#fff"/>
+        <circle cx="100" cy="157" r="5.5" fill="${ink}"/>
+        <circle cx="94" cy="93" r="2.2" fill="${ink}"/><circle cx="106" cy="93" r="2.2" fill="${ink}"/>
+
+        <g class="f-idle" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="76" cy="68" rx="12" ry="14" fill="#fff" stroke-width="3"/>
+          <ellipse cx="124" cy="68" rx="10" ry="12" fill="#fff" stroke-width="3"/>
+          <circle cx="71" cy="63" r="4.5" fill="${ink}" stroke="none"/>
+          <circle cx="128" cy="73" r="3.6" fill="${ink}" stroke="none"/>
+          <path d="M76 106 q24 14 48 0" fill="none" stroke-width="3.4"/>
+          <path d="M106 111 q-1 16 8 15 q9 -1 6 -17 Z" fill="#ff8fa5" stroke-width="3"/>
         </g>
-        <g class="eyes-happy" fill="none" stroke="${ink}" stroke-width="4" stroke-linecap="round">
-          <path d="M68 88 q8 -9 16 0"/><path d="M116 88 q8 -9 16 0"/>
+
+        <g class="f-happy" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M64 70 q12 -14 24 0" fill="none" stroke-width="4.2"/>
+          <path d="M112 70 q12 -14 24 0" fill="none" stroke-width="4.2"/>
+          <ellipse cx="60" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
+          <ellipse cx="140" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
+          <path d="M68 102 q32 44 64 0 Z" fill="#8a2f3f" stroke-width="3.4"/>
+          <path d="M74 104 h52 q-3 7 -8 8 h-36 q-5 -1 -8 -8 Z" fill="#fff" stroke-width="2.4"/>
+          <path d="M88 124 q12 -9 24 0 q-12 8 -24 0 Z" fill="#ff8fa5" stroke-width="2.4"/>
         </g>
-        <path d="M95 97 h10 l-5 6 Z" fill="${ink}" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M88 106 q6 8 12 0 q6 8 12 0" fill="none" stroke="${ink}" stroke-width="3.2" stroke-linecap="round"/>
-        <g fill="${ink}">
-          <circle cx="66" cy="110" r="1.6"/><circle cx="60" cy="116" r="1.6"/>
-          <circle cx="134" cy="110" r="1.6"/><circle cx="140" cy="116" r="1.6"/>
+
+        <g class="f-shot" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="76" cy="70" rx="12" ry="12" fill="#fff" stroke-width="3"/>
+          <path d="M63 70 a13 13 0 0 1 26 0 Z" fill="${fur}" stroke-width="3"/>
+          <circle cx="81" cy="75" r="4.2" fill="${ink}" stroke="none"/>
+          <path d="M112 72 q12 8 24 0" fill="none" stroke-width="4.2"/>
+          <path d="M62 50 q14 -12 28 -4" fill="none" stroke-width="4.2"/>
+          <path d="M112 58 q12 -4 24 2" fill="none" stroke-width="4.2"/>
+          <path d="M76 110 q26 12 48 -8" fill="none" stroke-width="3.6"/>
+          <path d="M122 99 q6 2 4 8" fill="none" stroke-width="3"/>
+          <path d="M168 28 c-7 -12 -24 -3 -16 10 c4 7 16 14 16 14 s12 -7 16 -14 c8 -13 -9 -22 -16 -10 Z"
+                fill="#ff6f91" stroke-width="3"/>
         </g>
-        <path class="heart" d="M162 34 c-7 -12 -24 -3 -16 10 c4 7 16 14 16 14 s12 -7 16 -14 c8 -13 -9 -22 -16 -10 Z"
-              fill="#ff6f91" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>
       </svg>`;
     }
     $("startMascot").innerHTML = mascotSVG();
