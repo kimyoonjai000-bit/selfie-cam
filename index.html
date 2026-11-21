@@ -98,14 +98,11 @@
     .mascot[data-face="warm"] .f-warm { display: inline; }
     .mascot[data-face="love"] .f-love { display: inline; }
     .mascot[data-face="care"] .f-care { display: inline; }
-    #startMascot { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; max-width: 370px; }
-    #startMascot .pair { display: flex; animation: bob 2.6s ease-in-out infinite; }
-    #startMascot .pair:nth-child(2) { animation-delay: -.5s; }
-    #startMascot .pair:nth-child(3) { animation-delay: -1s; }
-    #startMascot .pair:nth-child(4) { animation-delay: -1.5s; }
-    #startMascot .pair:nth-child(5) { animation-delay: -2s; }
-    #startMascot .mascot { width: 82px; height: 82px; }
-    #startMascot .mascot + .mascot { margin-left: -8px; }
+    /* Couple stickers scattered around the start screen */
+    #startMascot { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    #startMascot .pair { position: absolute; display: flex; }
+    #startMascot .pair > div { display: flex; animation: bob 2.8s ease-in-out infinite; }
+    #startMascot .mascot + .mascot { margin-left: -8%; }
     @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
     #miniMascot { display: flex; flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
     #miniMascot .mascot { width: 54px; height: 54px; }
@@ -119,12 +116,15 @@
       gap: 14px; padding: 32px; text-align: center;
       background: linear-gradient(180deg, #fff3ec 0%, #ffe3ec 55%, #ffd3e2 100%); color: #5a3340; }
     #start h1 { margin: 0; font-size: 36px; font-weight: 400; letter-spacing: 0; color: #e0607f; }
-    #start p { margin: 0 0 14px; font-size: 16px; line-height: 1.6; color: #8a5a66; }
+    #start h1, #slogan, #startBtn, #startMsg { position: relative; }
+    #slogan { font-size: 21px; line-height: 1.5; color: #8a5a66; margin-bottom: 10px; }
+    #slogan b { font-weight: 400; font-size: 30px; color: #e0607f; }
+    #startFoot { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 12px); }
+    #startFoot p { margin: 0 0 4px; font-size: 11.5px; line-height: 1.5; color: #a67784; }
     #startBtn { width: 92px; height: 92px; border-radius: 50%; background: var(--accent); color: #4a2230;
       font-size: 20px; font-weight: 400; color: #fff; background: #ff7fa6; box-shadow: 0 0 0 8px rgba(255,127,166,.22), 0 12px 30px rgba(255,127,166,.35); }
     #startBtn:active { transform: scale(.96); }
-    #learnBtn { padding: 11px 18px; font-size: 14px; font-weight: 400; color: #8a5a66; margin-top: 10px;
-      background: rgba(255,255,255,.65); border-color: rgba(224,96,127,.25); }
+    #learnBtn { padding: 4px 8px; font-size: 11px; color: #b88a96; text-decoration: underline; }
     #refPanel { display: none; position: fixed; inset: 0; background: #0b0b0c; flex-direction: column;
       padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px); }
     #refPanel.show { display: flex; }
@@ -208,11 +208,14 @@
   <div id="start">
     <div id="startMascot"></div>
     <h1>YJ Selfie Camera</h1>
-    <p>후면 카메라를 얼굴 쪽으로 돌리고<br>음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요.<br>볼륨을 켜주세요.</p>
+    <div id="slogan">우디니에 의한<br>우디니를 위한<br><b>우의우위</b></div>
     <button id="startBtn">시작</button>
-    <button id="learnBtn" class="pill">기준 사진 구도 분석</button>
-    <input type="file" id="refInput" accept="image/*" multiple hidden>
     <div id="startMsg"></div>
+    <div id="startFoot">
+      <p>후면 카메라를 얼굴 쪽으로 돌리고 음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요. 볼륨을 켜주세요.</p>
+      <button id="learnBtn">기준 사진 구도 분석</button>
+    </div>
+    <input type="file" id="refInput" accept="image/*" multiple hidden>
   </div>
 
   <div id="refPanel">
@@ -229,7 +232,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.6";
+    const VERSION   = "v6.7";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -972,17 +975,29 @@
     $("miniBoy").innerHTML = mascotSVG("boy");
     setFaces("mini", "idle");
 
-    // Start screen: five couple "stickers", one per mood
-    for (const face of ["excited", "sulk", "angry", "sorry", "sleep"]) {
+    // Start screen: five couple "stickers" scattered here and there (not in a neat grid)
+    const STICKERS = [
+      { face: "excited", size: 84, left: "5%",  top: "7%",  rot: -11, delay: 0 },
+      { face: "sulk",    size: 66, left: "58%", top: "15%", rot: 9,   delay: -0.7 },
+      { face: "sleep",   size: 58, left: "22%", top: "22%", rot: 5,   delay: -1.3 },
+      { face: "angry",   size: 70, left: "3%",  top: "66%", rot: 8,   delay: -1.9 },
+      { face: "sorry",   size: 78, left: "55%", top: "71%", rot: -8,  delay: -2.4 }
+    ];
+    for (const st of STICKERS) {
       const pair = document.createElement("div");
       pair.className = "pair";
+      pair.style.cssText = `left:${st.left};top:${st.top};transform:rotate(${st.rot}deg)`;
+      const inner = document.createElement("div");
+      inner.style.animationDelay = st.delay + "s";
       const g = document.createElement("div"), b = document.createElement("div");
       g.className = b.className = "mascot";
+      g.style.width = g.style.height = b.style.width = b.style.height = st.size + "px";
       g.innerHTML = mascotSVG("girl");
       b.innerHTML = mascotSVG("boy");
-      setFace(g, face);
-      setFace(b, BOY_FACE[face]);
-      pair.append(g, b);
+      setFace(g, st.face);
+      setFace(b, BOY_FACE[st.face]);
+      inner.append(g, b);
+      pair.appendChild(inner);
       $("startMascot").appendChild(pair);
     }
 
