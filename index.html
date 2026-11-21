@@ -149,6 +149,17 @@
     #viewerBar button { flex: 1; padding: 15px 0; border-radius: 14px; font-size: 16px; font-weight: 700;
       background: rgba(255,255,255,.12); }
     #viewerBar button.primary { background: var(--accent); color: #4a2230; }
+    /* Small "making the full-quality photo" notice under the counter */
+    #viewerLoad { display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      top: calc(env(safe-area-inset-top) + 40px); padding: 6px 12px 8px; border-radius: 12px;
+      background: rgba(0,0,0,.55); color: #fff; font-size: 12px; text-align: center; pointer-events: none; }
+    #viewerLoad.show { display: block; }
+    #viewerLoad i { display: block; position: relative; width: 120px; height: 3px; margin: 5px auto 0;
+      border-radius: 2px; background: rgba(255,255,255,.25); overflow: hidden; }
+    #viewerLoad i::after { content: ""; position: absolute; top: 0; bottom: 0; width: 40%;
+      border-radius: 2px; background: var(--accent); animation: loadbar 1s ease-in-out infinite; }
+    @keyframes loadbar { 0% { left: -40%; } 100% { left: 100%; } }
+    #gallery img.loading { opacity: .55; }
     #viewerCount { position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top) + 14px);
       text-align: center; font-size: 15px; color: #fff; pointer-events: none;
       text-shadow: 0 1px 4px rgba(0,0,0,.6); }
@@ -203,6 +214,7 @@
 
   <div id="viewer">
     <div id="viewerCount"></div>
+    <div id="viewerLoad"><span>고화질로 바꾸는 중… 잠깐만요</span><i></i></div>
     <img id="viewerImg" alt="">
     <div id="viewerNote">아이폰은 사진을 길게 눌러 "사진 앱에 저장"도 할 수 있어요</div>
     <div id="viewerBar">
@@ -230,7 +242,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.23";
+    const VERSION   = "v6.24";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -687,6 +699,7 @@
       const img = document.createElement("img");
       img.src = photo.url;
       img.alt = photo.name;
+      img.classList.add("loading");   // dimmed until the full-quality file is ready
       photo.img = img;
       img.addEventListener("click", () => openViewer(photo));
       const hint = $("emptyHint");
@@ -701,7 +714,8 @@
         if (!blob) return;
         photo.blob = blob;
         photo.url = URL.createObjectURL(blob);
-        if (viewing === photo) viewerImg.src = photo.url;
+        img.classList.remove("loading");
+        if (viewing === photo) { viewerImg.src = photo.url; $("viewerLoad").classList.remove("show"); }
       }, "image/jpeg", 0.95);
     }
 
@@ -712,6 +726,7 @@
       viewing = photos[i];
       viewerImg.src = viewing.url;
       $("viewerCount").textContent = `${i + 1} / ${photos.length}`;
+      $("viewerLoad").classList.toggle("show", !viewing.blob);
     }
     function openViewer(photo) {
       showPhoto(photos.indexOf(photo));
