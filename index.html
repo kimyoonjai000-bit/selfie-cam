@@ -127,13 +127,17 @@
     #startMsg { min-height: 18px; margin-bottom: 6px; font-size: 13px; color: #e0607f; }
 
     /* Photo viewer */
-    #viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); flex-direction: column; }
+    #viewer { display: none; position: fixed; inset: 0; background: #000; flex-direction: column; }
     #viewer.show { display: flex; }
     #viewerImg { flex: 1; min-height: 0; width: 100%; object-fit: contain; padding: calc(env(safe-area-inset-top) + 12px) 12px 12px; }
     #viewerBar { display: flex; gap: 10px; padding: 0 14px calc(env(safe-area-inset-bottom) + 16px); }
     #viewerBar button { flex: 1; padding: 15px 0; border-radius: 14px; font-size: 16px; font-weight: 700;
       background: rgba(255,255,255,.12); }
     #viewerBar button.primary { background: var(--accent); color: #4a2230; }
+    #viewerCount { position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top) + 14px);
+      text-align: center; font-size: 15px; color: #fff; pointer-events: none;
+      text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+    #viewerImg { touch-action: pan-y; user-select: none; -webkit-user-select: none; transition: transform .18s ease-out, opacity .18s; }
     #viewerNote { text-align: center; font-size: 12px; color: var(--dim); padding: 0 14px 10px; }
   </style>
 </head>
@@ -183,6 +187,7 @@
   </div>
 
   <div id="viewer">
+    <div id="viewerCount"></div>
     <img id="viewerImg" alt="">
     <div id="viewerNote">아이폰은 사진을 길게 눌러 "사진 앱에 저장"도 할 수 있어요</div>
     <div id="viewerBar">
@@ -209,7 +214,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.9";
+    const VERSION   = "v6.10";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -249,6 +254,7 @@
     const recent = [];        // feature vectors from the last few hundred ms
     const prevOk = {}, okBeepAt = {};   // per-condition state for the progress beeps
     let viewing = null;       // { blob, name, url } of the photo open in the viewer
+    const photos = [];        // all photos, newest first (same order as the strip)
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     // ---- Sound: short beep using Web Audio (no audio files needed) ----
@@ -603,6 +609,7 @@
       const hint = $("emptyHint");
       if (hint) hint.remove();
       gallery.prepend(img);
+      photos.unshift(photo);
       photoCount++;
       photoCountEl.textContent = photoCount;
 
@@ -615,21 +622,68 @@
       }, "image/jpeg", 0.95);
     }
 
-    // ---- Photo viewer: save (download) or share ----
+    // ---- Photo viewer: swipe left/right between photos, save, share, delete ----
+    function showPhoto(i) {
+      if (!photos.length) { viewer.classList.remove("show"); viewing = null; return; }
+      i = Math.max(0, Math.min(photos.length - 1, i));
+      viewing = photos[i];
+      viewerImg.src = viewing.url;
+      $("viewerCount").textContent = `${i + 1} / ${photos.length}`;
+    }
     function openViewer(photo) {
-      viewing = photo;
-      viewerImg.src = photo.url;
+      showPhoto(photos.indexOf(photo));
       viewer.classList.add("show");
     }
+    function swipeTo(dir) {   // dir: +1 = next (older), -1 = previous (newer)
+      const i = photos.indexOf(viewing) + dir;
+      if (i < 0 || i >= photos.length) {   // at the end: small bounce
+        viewerImg.style.transform = `translateX(${-dir * 24}px)`;
+        setTimeout(() => { viewerImg.style.transform = ""; }, 180);
+        return;
+      }
+      viewerImg.style.transform = `translateX(${-dir * 60}px)`;
+      viewerImg.style.opacity = "0";
+      setTimeout(() => {
+        showPhoto(i);
+        viewerImg.style.transition = "none";
+        viewerImg.style.transform = `translateX(${dir * 60}px)`;
+        void viewerImg.offsetWidth;
+        viewerImg.style.transition = "";
+        viewerImg.style.transform = "";
+        viewerImg.style.opacity = "";
+      }, 150);
+    }
+    let touchX = 0, touchY = 0, touching = false;
+    viewerImg.addEventListener("touchstart", (e) => {
+      touching = true;
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+      viewerImg.style.transition = "none";
+    }, { passive: true });
+    viewerImg.addEventListener("touchmove", (e) => {
+      if (!touching) return;
+      const dx = e.touches[0].clientX - touchX;
+      viewerImg.style.transform = `translateX(${dx}px)`;   // image follows the finger
+    }, { passive: true });
+    viewerImg.addEventListener("touchend", (e) => {
+      if (!touching) return;
+      touching = false;
+      viewerImg.style.transition = "";
+      const dx = e.changedTouches[0].clientX - touchX;
+      const dy = e.changedTouches[0].clientY - touchY;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) swipeTo(dx < 0 ? 1 : -1);
+      else viewerImg.style.transform = "";
+    });
     $("closeBtn").addEventListener("click", () => viewer.classList.remove("show"));
     $("delBtn").addEventListener("click", () => {
       if (!viewing) return;
+      const i = photos.indexOf(viewing);
+      photos.splice(i, 1);
       viewing.img.remove();
       if (viewing.blob) URL.revokeObjectURL(viewing.url);
       photoCount--;
       photoCountEl.textContent = photoCount;
-      viewing = null;
-      viewer.classList.remove("show");
+      showPhoto(Math.min(i, photos.length - 1));   // stay in the viewer on the neighbour
     });
     $("saveBtn").addEventListener("click", () => {
       if (!viewing || !viewing.blob) return;   // full-size file not ready yet
