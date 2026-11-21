@@ -83,15 +83,18 @@
 
     /* Mascot (original character: a goofy, shameless golden monkey holding a camera) */
     .mascot svg { width: 100%; height: 100%; display: block; overflow: visible; }
-    .mascot .f-happy, .mascot .f-shot { display: none; }
-    .mascot.happy .f-idle { display: none; }
-    .mascot.happy .f-happy { display: inline; }
-    .mascot.shot .f-idle, .mascot.shot .f-happy { display: none; }
-    .mascot.shot .f-shot { display: inline; }
-    .mascot { display: block; }
-    #startMascot { width: 150px; height: 150px; animation: bob 2.4s ease-in-out infinite; }
+    .mascot g[class^="f-"] { display: none; }
+    .mascot[data-face="idle"] .f-idle { display: inline; }
+    .mascot[data-face="happy"] .f-happy { display: inline; }
+    .mascot[data-face="shot"] .f-shot { display: inline; }
+    .mascot[data-face="sleep"] .f-sleep { display: inline; }
+    .mascot[data-face="wake"] .f-wake { display: inline; }
+    .mascot[data-face="sulk"] .f-sulk { display: inline; }
+    .mascot[data-face="angry"] .f-angry { display: inline; }
+    .mascot[data-face="sorry"] .f-sorry { display: inline; }
+    #startMascot { width: 190px; height: 190px; animation: bob 2.4s ease-in-out infinite; }
     @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    #miniMascot { width: 52px; height: 52px; flex: none; margin-right: -2px;
+    #miniMascot { width: 76px; height: 76px; flex: none; margin-right: -2px;
       filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
     #miniMascot.show { animation: hop .5s ease-out; }
     @keyframes hop { 0% { transform: translateY(0) scale(1); } 35% { transform: translateY(-12px) scale(1.12); }
@@ -212,7 +215,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.2";
+    const VERSION   = "v6.3";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -538,13 +541,24 @@
         if (framedOk) {
           // Only announce "lost" if it stays lost for a moment
           if (!lostAt) lostAt = now;
-          else if (now - lostAt > 800) { beep(330); framedOk = false; lostAt = 0; }
+          else if (now - lostAt > 800) { beep(330); framedOk = false; lostAt = 0; sulkUntil = now + 3000; }
         } else if (newlyMet) {
           beep(440 + metCount * 110, 80);
         }
       }
 
-      $("miniMascot").classList.toggle("happy", framed);
+      // Mascot mood follows what is happening
+      let face = "idle";
+      if (now < shotUntil) face = "shot";
+      else if (now < wakeUntil) face = "wake";
+      else if (photoCount >= RULES.maxPhotos) face = "sorry";
+      else if (framed) face = "happy";
+      else if (now < sulkUntil) face = "sulk";
+      else if (!hasFace && noFaceSince && now - noFaceSince > 5000) face = "sleep";
+      else if (hasFace && hint && now - hintSince > 7000) face = "angry";
+      setFace($("miniMascot"), face);
+      if (face === "sleep") wasSleeping = true;
+      else if (hasFace && wasSleeping) { wasSleeping = false; wakeUntil = now + 2500; }
       setChip(chips.dist, okDist);
       setChip(chips.angle, okAngle);
       setChip(chips.nose, okNose);
@@ -734,76 +748,156 @@
     });
 
     // ---- Mascot drawing (original goofy monkey, hand-drawn look) ----
-    // Three faces: idle (blank, tongue out), happy (huge grin), shot (smug wink + heart)
+    // One body, eight faces. The face shown is chosen with data-face on the container.
     function mascotSVG() {
-      const ink = "#3a2a22", fur = "#f1ae45", pale = "#ffe8c9", pink = "#ff9dbb";
+      const ink = "#3a2a22", fur = "#f1ae45", pale = "#ffe8c9", pink = "#ff9dbb", blue = "#a9dcff";
+      const L = `stroke="${ink}" stroke-linecap="round" stroke-linejoin="round"`;
       return `<svg viewBox="0 0 200 200" aria-hidden="true">
         <g filter="url(#rough)" stroke-linecap="round" stroke-linejoin="round">
           <path d="M146 166 q44 -2 40 -40 q-4 -24 -24 -14 q-12 8 0 18" fill="none" stroke="${ink}" stroke-width="13"/>
           <path d="M146 166 q44 -2 40 -40 q-4 -24 -24 -14 q-12 8 0 18" fill="none" stroke="${fur}" stroke-width="6.5"/>
           <g stroke="${ink}" stroke-width="3.6">
-            <ellipse cx="72" cy="184" rx="20" ry="11" fill="${pale}"/>
-            <ellipse cx="128" cy="184" rx="20" ry="11" fill="${pale}"/>
-            <ellipse cx="100" cy="150" rx="46" ry="38" fill="${fur}"/>
-            <circle cx="34" cy="80" r="21" fill="${fur}"/>
-            <circle cx="166" cy="80" r="21" fill="${fur}"/>
-            <circle cx="34" cy="80" r="10" fill="${pink}" stroke-width="2.4"/>
-            <circle cx="166" cy="80" r="10" fill="${pink}" stroke-width="2.4"/>
-            <path d="M84 36 q2 -20 12 -6 q4 -22 12 -4 q8 -14 8 6" fill="${fur}"/>
-            <ellipse cx="100" cy="82" rx="62" ry="54" fill="${fur}"/>
-            <ellipse cx="100" cy="104" rx="42" ry="27" fill="${pale}" stroke-width="3"/>
-            <rect x="74" y="140" width="52" height="34" rx="8" fill="${pink}"/>
-            <rect x="84" y="133" width="16" height="9" rx="3" fill="${pink}"/>
-            <circle cx="100" cy="157" r="11" fill="#fff"/>
-            <ellipse cx="68" cy="158" rx="10" ry="12" fill="${pale}"/>
-            <ellipse cx="132" cy="158" rx="10" ry="12" fill="${pale}"/>
+            <ellipse cx="74" cy="186" rx="17" ry="9" fill="${pale}"/>
+            <ellipse cx="126" cy="186" rx="17" ry="9" fill="${pale}"/>
+            <ellipse cx="100" cy="156" rx="40" ry="32" fill="${fur}"/>
+            <circle cx="32" cy="82" r="22" fill="${fur}"/>
+            <circle cx="168" cy="82" r="22" fill="${fur}"/>
+            <circle cx="32" cy="82" r="10" fill="${pink}" stroke-width="2.4"/>
+            <circle cx="168" cy="82" r="10" fill="${pink}" stroke-width="2.4"/>
+            <path d="M84 34 q2 -20 12 -6 q4 -22 12 -4 q8 -14 8 6" fill="${fur}"/>
+            <path d="M100 26 C142 24 168 50 166 84 C164 118 138 138 100 138 C60 138 36 118 34 86 C32 52 58 28 100 26 Z" fill="${fur}"/>
+            <ellipse cx="100" cy="106" rx="43" ry="27" fill="${pale}" stroke-width="3"/>
+            <rect x="77" y="146" width="46" height="30" rx="7" fill="${pink}"/>
+            <rect x="86" y="140" width="14" height="8" rx="3" fill="${pink}"/>
+            <circle cx="100" cy="161" r="9.5" fill="#fff"/>
+            <ellipse cx="71" cy="162" rx="9" ry="11" fill="${pale}"/>
+            <ellipse cx="129" cy="162" rx="9" ry="11" fill="${pale}"/>
           </g>
         </g>
-        <circle cx="100" cy="157" r="5.5" fill="${ink}"/>
-        <circle cx="94" cy="93" r="2.2" fill="${ink}"/><circle cx="106" cy="93" r="2.2" fill="${ink}"/>
+        <circle cx="100" cy="161" r="4.8" fill="${ink}"/>
+        <circle cx="94" cy="95" r="2.2" fill="${ink}"/><circle cx="106" cy="95" r="2.2" fill="${ink}"/>
 
-        <g class="f-idle" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+        <g class="f-idle" ${L}>
           <ellipse cx="76" cy="68" rx="12" ry="14" fill="#fff" stroke-width="3"/>
           <ellipse cx="124" cy="68" rx="10" ry="12" fill="#fff" stroke-width="3"/>
           <circle cx="71" cy="63" r="4.5" fill="${ink}" stroke="none"/>
           <circle cx="128" cy="73" r="3.6" fill="${ink}" stroke="none"/>
-          <path d="M76 106 q24 14 48 0" fill="none" stroke-width="3.4"/>
-          <path d="M106 111 q-1 16 8 15 q9 -1 6 -17 Z" fill="#ff8fa5" stroke-width="3"/>
+          <path d="M76 108 q24 14 48 0" fill="none" stroke-width="3.4"/>
+          <path d="M106 113 q-1 16 8 15 q9 -1 6 -17 Z" fill="#ff8fa5" stroke-width="3"/>
         </g>
 
-        <g class="f-happy" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+        <g class="f-happy" ${L}>
           <path d="M64 70 q12 -14 24 0" fill="none" stroke-width="4.2"/>
           <path d="M112 70 q12 -14 24 0" fill="none" stroke-width="4.2"/>
-          <ellipse cx="60" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
-          <ellipse cx="140" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
-          <path d="M68 102 q32 44 64 0 Z" fill="#8a2f3f" stroke-width="3.4"/>
-          <path d="M74 104 h52 q-3 7 -8 8 h-36 q-5 -1 -8 -8 Z" fill="#fff" stroke-width="2.4"/>
-          <path d="M88 124 q12 -9 24 0 q-12 8 -24 0 Z" fill="#ff8fa5" stroke-width="2.4"/>
+          <ellipse cx="58" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
+          <ellipse cx="142" cy="88" rx="10" ry="6" fill="${pink}" stroke="none" opacity=".8"/>
+          <path d="M68 104 q32 44 64 0 Z" fill="#8a2f3f" stroke-width="3.4"/>
+          <path d="M74 106 h52 q-3 7 -8 8 h-36 q-5 -1 -8 -8 Z" fill="#fff" stroke-width="2.4"/>
+          <path d="M88 126 q12 -9 24 0 q-12 8 -24 0 Z" fill="#ff8fa5" stroke-width="2.4"/>
         </g>
 
-        <g class="f-shot" stroke="${ink}" stroke-linecap="round" stroke-linejoin="round">
+        <g class="f-shot" ${L}>
           <ellipse cx="76" cy="70" rx="12" ry="12" fill="#fff" stroke-width="3"/>
           <path d="M63 70 a13 13 0 0 1 26 0 Z" fill="${fur}" stroke-width="3"/>
           <circle cx="81" cy="75" r="4.2" fill="${ink}" stroke="none"/>
           <path d="M112 72 q12 8 24 0" fill="none" stroke-width="4.2"/>
           <path d="M62 50 q14 -12 28 -4" fill="none" stroke-width="4.2"/>
           <path d="M112 58 q12 -4 24 2" fill="none" stroke-width="4.2"/>
-          <path d="M76 110 q26 12 48 -8" fill="none" stroke-width="3.6"/>
-          <path d="M122 99 q6 2 4 8" fill="none" stroke-width="3"/>
-          <path d="M168 28 c-7 -12 -24 -3 -16 10 c4 7 16 14 16 14 s12 -7 16 -14 c8 -13 -9 -22 -16 -10 Z"
-                fill="#ff6f91" stroke-width="3"/>
+          <path d="M76 112 q26 12 48 -8" fill="none" stroke-width="3.6"/>
+          <path d="M122 101 q6 2 4 8" fill="none" stroke-width="3"/>
+          <path d="M170 26 c-7 -12 -24 -3 -16 10 c4 7 16 14 16 14 s12 -7 16 -14 c8 -13 -9 -22 -16 -10 Z" fill="#ff6f91" stroke-width="3"/>
+        </g>
+
+        <g class="f-sleep" ${L}>
+          <path d="M62 70 q12 8 24 0" fill="none" stroke-width="4"/>
+          <path d="M114 70 q12 8 24 0" fill="none" stroke-width="4"/>
+          <circle cx="120" cy="92" r="11" fill="${blue}" stroke-width="2.6" opacity=".9"/>
+          <path d="M115 88 q3 -4 7 -2" fill="none" stroke="#fff" stroke-width="2.4"/>
+          <ellipse cx="96" cy="114" rx="10" ry="8" fill="#8a2f3f" stroke-width="3"/>
+          <path d="M90 119 q-4 16 -2 28 q2 8 8 4 q5 -5 2 -16 q-2 -10 0 -15 Z" fill="${blue}" stroke-width="2.6"/>
+          <text x="150" y="44" font-size="30" font-weight="800" fill="${ink}" stroke="none" font-family="sans-serif">z</text>
+          <text x="170" y="22" font-size="20" font-weight="800" fill="${ink}" stroke="none" font-family="sans-serif">z</text>
+        </g>
+
+        <g class="f-wake" ${L}>
+          <path d="M50 54 l-14 -24 l22 12 l-6 -30 l20 22 l6 -32 l12 30 l16 -26 l2 30 l24 -18 l-10 28 l22 -6 l-16 20"
+                fill="${fur}" stroke-width="3.6"/>
+          <ellipse cx="76" cy="72" rx="11" ry="7" fill="#fff" stroke-width="3"/>
+          <path d="M65 72 a11 8 0 0 1 22 0 Z" fill="${fur}" stroke-width="3"/>
+          <circle cx="76" cy="75" r="3" fill="${ink}" stroke="none"/>
+          <path d="M112 74 h24" fill="none" stroke-width="4"/>
+          <path d="M66 84 q10 5 20 0" fill="none" stroke-width="2.4" opacity=".55"/>
+          <path d="M114 84 q10 5 20 0" fill="none" stroke-width="2.4" opacity=".55"/>
+          <path d="M80 112 q6 -6 12 0 q6 6 12 0 q6 -6 12 0" fill="none" stroke-width="3.4"/>
+          <path d="M118 116 q3 8 0 12" fill="none" stroke="${blue}" stroke-width="4"/>
+        </g>
+
+        <g class="f-sulk" ${L}>
+          <path d="M60 58 l26 9" fill="none" stroke-width="4.6"/>
+          <path d="M140 58 l-26 9" fill="none" stroke-width="4.6"/>
+          <ellipse cx="76" cy="76" rx="10" ry="7" fill="#fff" stroke-width="3"/>
+          <ellipse cx="124" cy="76" rx="10" ry="7" fill="#fff" stroke-width="3"/>
+          <circle cx="82" cy="77" r="3.4" fill="${ink}" stroke="none"/>
+          <circle cx="130" cy="77" r="3.4" fill="${ink}" stroke="none"/>
+          <circle cx="62" cy="102" r="13" fill="${pink}" stroke="none" opacity=".75"/>
+          <circle cx="138" cy="102" r="13" fill="${pink}" stroke="none" opacity=".75"/>
+          <path d="M92 110 q8 -9 16 0 q-8 9 -16 0 Z" fill="#ff8fa5" stroke-width="3"/>
+          <path d="M160 112 q10 -6 12 4" fill="none" stroke-width="3"/>
+          <path d="M166 124 q9 -4 10 5" fill="none" stroke-width="3"/>
+        </g>
+
+        <g class="f-angry" ${L}>
+          <path d="M100 30 C140 28 164 52 164 82 C140 92 60 92 36 82 C36 52 60 30 100 30 Z" fill="#ff5a4d" stroke="none" opacity=".28"/>
+          <path d="M58 52 l30 14" fill="none" stroke-width="5.4"/>
+          <path d="M142 52 l-30 14" fill="none" stroke-width="5.4"/>
+          <ellipse cx="76" cy="76" rx="11" ry="9" fill="#fff" stroke-width="3"/>
+          <ellipse cx="124" cy="76" rx="11" ry="9" fill="#fff" stroke-width="3"/>
+          <circle cx="78" cy="77" r="2.8" fill="${ink}" stroke="none"/>
+          <circle cx="122" cy="77" r="2.8" fill="${ink}" stroke="none"/>
+          <path d="M72 106 q28 -8 56 0 v12 q-28 8 -56 0 Z" fill="#fff" stroke-width="3.2"/>
+          <path d="M86 104 v16 M100 103 v18 M114 104 v16 M72 112 h56" fill="none" stroke-width="2.2"/>
+          <g fill="none" stroke="#e8483c" stroke-width="4">
+            <path d="M150 30 q6 4 2 10"/><path d="M166 32 q-6 4 -2 10"/>
+            <path d="M150 54 q6 -4 2 -10"/><path d="M166 52 q-6 -4 -2 -10"/>
+          </g>
+        </g>
+
+        <g class="f-sorry" ${L}>
+          <path d="M60 64 l26 -10" fill="none" stroke-width="4.2"/>
+          <path d="M140 64 l-26 -10" fill="none" stroke-width="4.2"/>
+          <ellipse cx="76" cy="76" rx="13" ry="13" fill="#fff" stroke-width="3"/>
+          <ellipse cx="124" cy="76" rx="13" ry="13" fill="#fff" stroke-width="3"/>
+          <circle cx="77" cy="78" r="7.5" fill="${ink}" stroke="none"/>
+          <circle cx="123" cy="78" r="7.5" fill="${ink}" stroke="none"/>
+          <circle cx="80" cy="74" r="2.6" fill="#fff" stroke="none"/><circle cx="126" cy="74" r="2.6" fill="#fff" stroke="none"/>
+          <circle cx="73" cy="82" r="1.6" fill="#fff" stroke="none"/><circle cx="119" cy="82" r="1.6" fill="#fff" stroke="none"/>
+          <path d="M64 86 q-5 10 0 14 q6 2 6 -6 Z" fill="${blue}" stroke-width="2.4"/>
+          <path d="M136 86 q5 10 0 14 q-6 2 -6 -6 Z" fill="${blue}" stroke-width="2.4"/>
+          <path d="M88 116 q12 -10 24 0" fill="none" stroke-width="3.4"/>
+          <path d="M156 40 q-8 12 0 16 q8 -4 0 -16 Z" fill="${blue}" stroke-width="2.4"/>
         </g>
       </svg>`;
     }
+    const FACES = ["idle", "happy", "shot", "sleep", "wake", "sulk", "angry", "sorry"];
+    function setFace(el, face) { if (el.dataset.face !== face) el.dataset.face = face; }
     $("startMascot").innerHTML = mascotSVG();
     $("miniMascot").innerHTML = mascotSVG();
-    let shotTimer = 0;
+    setFace($("miniMascot"), "idle");
+
+    // Start screen: the monkey cycles through its moods; tap it to change at once
+    let startFace = 0;
+    function nextStartFace() {
+      setFace($("startMascot"), FACES[startFace]);
+      startFace = (startFace + 1) % FACES.length;
+    }
+    nextStartFace();
+    let startFaceTimer = setInterval(nextStartFace, 2400);
+    $("startMascot").addEventListener("click", nextStartFace);
+
+    let shotUntil = 0, wakeUntil = 0, sulkUntil = 0, wasSleeping = false;
     function mascotShot() {
-      const m = $("miniMascot");
-      m.classList.add("shot");
-      replay(m);
-      clearTimeout(shotTimer);
-      shotTimer = setTimeout(() => m.classList.remove("shot"), 1000);
+      shotUntil = performance.now() + 1100;
+      replay($("miniMascot"));
     }
 
     // ---- Start button: sound + camera + model ----
@@ -822,11 +916,14 @@
         startMsg.textContent = "얼굴 인식 준비 중… (처음엔 10초 정도)";
         landmarker = await createLandmarker();
 
+        clearInterval(startFaceTimer);
         startScreen.style.display = "none";
         beep(660, 100);
         loop();
       } catch (err) {
         startMsg.textContent = "실패: " + err.name + " - " + err.message;
+        clearInterval(startFaceTimer);
+        setFace($("startMascot"), "sorry");
         startBtn.disabled = false;
       }
     });
