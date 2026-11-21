@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.5";
+    const VERSION   = "v5.6";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -218,6 +218,7 @@
     let landmarker = null, audioCtx = null, currentStream = null;
     let camInfo = "", faceVisible = false, lastVideoTime = -1, frameCount = 0;
     let photoCount = 0, lastShotAt = 0, lastShotVec = null, framedOk = false, noFaceSince = 0;
+    let framedSince = 0, lastFramedAt = 0;
     const recent = [];        // feature vectors from the last few hundred ms
     const prevOk = {}, okBeepAt = {};   // per-condition state for the progress beeps
     let viewing = null;       // { blob, name, url } of the photo open in the viewer
@@ -405,6 +406,7 @@
       const result = landmarker.detectForVideo(video, now);
       const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
       let okNose = false, okCenter = false, okDist = false, okAngle = false, still = false, framed = false;
+      let settled = false, waitingChange = false;
       let hint = null;
       let dbg = "face: no";
 
@@ -442,9 +444,24 @@
         still = move < RULES.stillMax;
         recent.push({ t: now, vec });
 
+        // Coming back into the composition after more than a second away
+        // always earns a new photo, even with the same expression as before
+        if (framed) {
+          if (!framedSince) {
+            if (now - lastFramedAt > 1000) lastShotVec = null;
+            framedSince = now;
+          }
+          lastFramedAt = now;
+        } else {
+          framedSince = 0;
+        }
+        // "Still" by measurement, or simply held in the composition long enough
+        settled = still || (framed && now - framedSince > 1200);
+
         const change = lastShotVec ? dist(vec, lastShotVec) : Infinity;
+        waitingChange = framed && change < RULES.changeMin;
         const full = photoCount >= RULES.maxPhotos;
-        if (framed && still && !full &&
+        if (framed && settled && !full &&
             change >= RULES.changeMin && now - lastShotAt >= RULES.minGapMs) {
           lastShotAt = now;
           lastShotVec = vec;
@@ -462,6 +479,7 @@
               `change ${isFinite(change) ? change.toFixed(2) : "-"}`;
       } else {
         recent.length = 0;
+        framedSince = 0;
         if (!noFaceSince) noFaceSince = now;
       }
 
@@ -496,6 +514,10 @@
         say(hint, now);
       } else if (photoCount >= RULES.maxPhotos) {
         setStatus(`${RULES.maxPhotos}장 다 찍었어요`, true);
+      } else if (waitingChange) {
+        setStatus("찍었어요 · 표정을 바꾸면 또 찍어요", true);
+      } else if (!settled) {
+        setStatus("좋아요, 그대로 멈춰요", true);
       } else {
         setStatus("좋아요, 찍는 중", true);
       }
