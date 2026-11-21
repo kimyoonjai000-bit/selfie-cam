@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.4";
+    const VERSION   = "v5.5";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -219,6 +219,7 @@
     let camInfo = "", faceVisible = false, lastVideoTime = -1, frameCount = 0;
     let photoCount = 0, lastShotAt = 0, lastShotVec = null, framedOk = false, noFaceSince = 0;
     const recent = [];        // feature vectors from the last few hundred ms
+    const prevOk = {}, okBeepAt = {};   // per-condition state for the progress beeps
     let viewing = null;       // { blob, name, url } of the photo open in the viewer
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -270,7 +271,7 @@
     function say(text, now) {
       if (!("speechSynthesis" in window)) return;
       if (now - lastSaidAt < 1800) return;                       // do not talk over itself
-      if (text === lastSaid && now - lastSaidAt < 4000) return;  // repeat the same hint slowly
+      if (text === lastSaid && now - lastSaidAt < 6000) return;  // repeat the same hint slowly
       lastSaid = text;
       lastSaidAt = now;
       speechSynthesis.cancel();
@@ -464,8 +465,21 @@
         if (!noFaceSince) noFaceSince = now;
       }
 
-      // Sound: high beep when the composition is right, low beep when it is lost
-      if (framed && !framedOk) beep(880);
+      // Sound: one short beep each time a single condition becomes right
+      // (higher tone the more conditions are met), long high beep when all are right,
+      // low beep when the full composition is lost
+      const oks = { dist: okDist, nose: okNose, center: okCenter, angle: okAngle };
+      const metCount = Object.values(oks).filter(Boolean).length;
+      let newlyMet = false;
+      for (const k in oks) {
+        if (oks[k] && !prevOk[k] && now - (okBeepAt[k] || 0) > 1500) {
+          newlyMet = true;
+          okBeepAt[k] = now;
+        }
+        prevOk[k] = oks[k];
+      }
+      if (framed && !framedOk) beep(1050, 260);
+      else if (newlyMet && !framed) beep(440 + metCount * 110, 80);
       if (!framed && framedOk) beep(330);
       framedOk = framed;
 
