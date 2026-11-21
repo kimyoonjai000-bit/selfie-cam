@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.6";
+    const VERSION   = "v5.7";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -202,7 +202,7 @@
       stillMs: 300,        // compare with the face 300 ms ago ...
       stillMax: 0.25,      // ... and it must have changed less than this (not moving)
       changeMin: 0.60,     // must differ this much from the last photo
-      minGapMs: 2000,      // shortest time between two photos
+      minGapMs: 3000,      // while the composition stays right, shoot again every 3 s
       maxPhotos: 40        // stop after this many photos (phone memory)
     };
     const NOSE_TIP = 1, CHIN = 152;   // MediaPipe face landmark indices
@@ -459,10 +459,10 @@
         settled = still || (framed && now - framedSince > 1200);
 
         const change = lastShotVec ? dist(vec, lastShotVec) : Infinity;
-        waitingChange = framed && change < RULES.changeMin;
         const full = photoCount >= RULES.maxPhotos;
-        if (framed && settled && !full &&
-            change >= RULES.changeMin && now - lastShotAt >= RULES.minGapMs) {
+        // Shoot whenever the composition is right and held, whatever the expression;
+        // keep shooting every few seconds while it stays right
+        if (framed && settled && !full && now - lastShotAt >= RULES.minGapMs) {
           lastShotAt = now;
           lastShotVec = vec;
           takePhoto();
@@ -514,8 +514,6 @@
         say(hint, now);
       } else if (photoCount >= RULES.maxPhotos) {
         setStatus(`${RULES.maxPhotos}장 다 찍었어요`, true);
-      } else if (waitingChange) {
-        setStatus("찍었어요 · 표정을 바꾸면 또 찍어요", true);
       } else if (!settled) {
         setStatus("좋아요, 그대로 멈춰요", true);
       } else {
