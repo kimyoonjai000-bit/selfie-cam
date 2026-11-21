@@ -183,7 +183,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v5.8";
+    const VERSION   = "v5.9";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -218,7 +218,8 @@
     let landmarker = null, audioCtx = null, currentStream = null;
     let camInfo = "", faceVisible = false, lastVideoTime = -1, frameCount = 0;
     let photoCount = 0, lastShotAt = 0, lastShotVec = null, framedOk = false, noFaceSince = 0;
-    let framedSince = 0, lastFramedAt = 0;
+    let framedSince = 0, lastFramedAt = 0, lostAt = 0, hintText = "", hintSince = 0;
+    const hold = { nose: false, center: false, dist: false, angle: false };
     const recent = [];        // feature vectors from the last few hundred ms
     const prevOk = {}, okBeepAt = {};   // per-condition state for the progress beeps
     let viewing = null;       // { blob, name, url } of the photo open in the viewer
@@ -421,16 +422,19 @@
         // Composition: where is the nose tip compared with the target point?
         const dy = nose.y - RULES.noseY;   // + means the nose is below the line
         const dx = nose.x - 0.5;           // + means the nose is right of center
-        okNose = Math.abs(dy) <= RULES.tolY;
-        okCenter = Math.abs(dx) <= RULES.tolX;
-        const okSize = box.h >= RULES.sizeMin && box.h <= RULES.sizeMax;
-        const okPitch = pitch >= RULES.pitchMin && pitch <= RULES.pitchMax;
+        // Hysteresis: once a condition is met it stays met inside a wider band,
+        // so small hand tremor near the limit does not flip it on and off
+        okNose = Math.abs(dy) <= RULES.tolY * (hold.nose ? 1.6 : 1);
+        okCenter = Math.abs(dx) <= RULES.tolX * (hold.center ? 1.6 : 1);
+        const sm = hold.dist ? 0.03 : 0, pm = hold.angle ? 5 : 0;
+        const okSize = box.h >= RULES.sizeMin - sm && box.h <= RULES.sizeMax + sm;
+        const okPitch = pitch >= RULES.pitchMin - pm && pitch <= RULES.pitchMax + pm;
         okDist = okSize;
         okAngle = okPitch;
+        hold.nose = okNose; hold.center = okCenter; hold.dist = okSize; hold.angle = okPitch;
 
         // One spoken hint at a time, most important first
-        if (box.h < RULES.sizeMin) hint = "조금 더 가까이";
-        else if (box.h > RULES.sizeMax) hint = "조금 더 멀리";
+        if (!okSize) hint = box.h < RULES.sizeMin ? "조금 더 가까이" : "조금 더 멀리";
         else if (!okNose) hint = dy > 0 ? "폰 위치를 아래로" : "폰 위치를 위로";
         else if (!okCenter) hint = dx < 0 ? "폰 위치를 오른쪽으로" : "폰 위치를 왼쪽으로";
         else if (!okPitch) hint = pitch < RULES.pitchMin ? "폰을 더 눕혀요" : "폰을 더 세워요";
@@ -480,6 +484,7 @@
       } else {
         recent.length = 0;
         framedSince = 0;
+        hold.nose = hold.center = hold.dist = hold.angle = false;
         if (!noFaceSince) noFaceSince = now;
       }
 
@@ -490,16 +495,24 @@
       const metCount = Object.values(oks).filter(Boolean).length;
       let newlyMet = false;
       for (const k in oks) {
-        if (oks[k] && !prevOk[k] && now - (okBeepAt[k] || 0) > 1500) {
+        if (oks[k] && !prevOk[k] && now - (okBeepAt[k] || 0) > 3000) {
           newlyMet = true;
           okBeepAt[k] = now;
         }
         prevOk[k] = oks[k];
       }
-      if (framed && !framedOk) beep(1050, 260);
-      else if (newlyMet && !framed) beep(440 + metCount * 110, 80);
-      if (!framed && framedOk) beep(330);
-      framedOk = framed;
+      if (framed) {
+        if (!framedOk) { beep(1050, 260); framedOk = true; }   // announced once
+        lostAt = 0;
+      } else {
+        if (framedOk) {
+          // Only announce "lost" if it stays lost for a moment
+          if (!lostAt) lostAt = now;
+          else if (now - lostAt > 800) { beep(330); framedOk = false; lostAt = 0; }
+        } else if (newlyMet) {
+          beep(440 + metCount * 110, 80);
+        }
+      }
 
       setChip(chips.dist, okDist);
       setChip(chips.angle, okAngle);
@@ -511,7 +524,9 @@
         setStatus("얼굴을 찾는 중");
       } else if (hint) {
         setStatus(hint);
-        say(hint, now);
+        // Speak only when the same hint has been needed for a moment
+        if (hint !== hintText) { hintText = hint; hintSince = now; }
+        if (now - hintSince > 900) say(hint, now);
       } else if (photoCount >= RULES.maxPhotos) {
         setStatus(`${RULES.maxPhotos}장 다 찍었어요`, true);
       } else if (!settled) {
