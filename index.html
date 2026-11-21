@@ -2,106 +2,178 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
   <title>Selfie Cam</title>
   <style>
-    body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-    video { width: 100%; max-height: 60vh; background: #222; }
-    button { font-size: 20px; padding: 14px 28px; margin: 16px; border-radius: 12px; border: none; }
-    #status { padding: 8px; font-size: 16px; }
-    #gallery img { width: 30%; margin: 1%; border-radius: 8px; }
-    #info { font-size: 22px; line-height: 1.6; padding: 8px; font-family: monospace; }
+    :root {
+      --accent: #ffd84d;
+      --glass: rgba(20, 20, 22, 0.55);
+      --line: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --dim: rgba(255, 255, 255, 0.62);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; background: #000; color: var(--text); overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif; }
+    button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+
+    /* Camera preview fills the whole screen */
+    #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b0b0c; }
+
+    /* Soft dark gradients so text stays readable over the video */
+    .shade { position: fixed; left: 0; right: 0; pointer-events: none; }
+    .shade.top { top: 0; height: 22%; background: linear-gradient(rgba(0,0,0,.55), transparent); }
+    .shade.bottom { bottom: 0; height: 38%; background: linear-gradient(transparent, rgba(0,0,0,.72)); }
+
+    /* Top bar */
+    #topbar { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px;
+      padding: calc(env(safe-area-inset-top) + 12px) 14px 0; }
+    .pill { background: var(--glass); border: 1px solid var(--line); border-radius: 999px;
+      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+    #status { padding: 9px 16px; font-size: 15px; font-weight: 600; letter-spacing: -0.2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .2s, color .2s; }
+    #status.ready { background: var(--accent); color: #1a1500; border-color: transparent; }
+    #spacer { flex: 1; }
+    #camSelect { display: none; max-width: 42vw; padding: 9px 12px; font-size: 13px; color: var(--text);
+      appearance: none; -webkit-appearance: none; outline: none; }
+    #camSelect option { color: #000; }
+    #debugBtn { width: 38px; height: 38px; font-size: 14px; font-weight: 700; color: var(--dim); flex: none; }
+
+    /* Big countdown number + white flash */
+    #count { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 34vw; font-weight: 800; color: #fff; text-shadow: 0 6px 40px rgba(0,0,0,.5);
+      pointer-events: none; opacity: 0; }
+    #count.show { animation: pop .42s ease-out; }
+    @keyframes pop { 0% { opacity: 0; transform: scale(.6); } 25% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.15); } }
+    #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    #flash.show { animation: flash .35s ease-out; }
+    @keyframes flash { 0% { opacity: .85; } 100% { opacity: 0; } }
+
+    /* Bottom panel: condition chips + photo strip */
+    #bottom { position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 0 14px calc(env(safe-area-inset-bottom) + 14px); }
+    #chips { display: flex; gap: 8px; justify-content: center; margin-bottom: 14px; }
+    .chip { padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--dim);
+      transition: background .15s, color .15s, border-color .15s; }
+    .chip.ok { background: var(--accent); color: #1a1500; border-color: transparent; }
+    #stripRow { display: flex; align-items: center; gap: 10px; min-height: 64px; }
+    #countLabel { font-size: 13px; color: var(--dim); flex: none; min-width: 44px; }
+    #countLabel b { display: block; font-size: 22px; color: var(--text); font-weight: 700; }
+    #gallery { display: flex; gap: 8px; overflow-x: auto; flex: 1; scrollbar-width: none; padding: 2px 0; }
+    #gallery::-webkit-scrollbar { display: none; }
+    #gallery img { width: 52px; height: 64px; object-fit: cover; border-radius: 10px; flex: none;
+      border: 1.5px solid rgba(255,255,255,.7); }
+    #emptyHint { font-size: 13px; color: var(--dim); }
+
+    /* Debug numbers (hidden until the "i" button is tapped) */
+    #debug { display: none; position: fixed; top: calc(env(safe-area-inset-top) + 64px); right: 14px;
+      padding: 12px 14px; border-radius: 14px; font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace; text-align: left; }
+    #debug.show { display: block; }
+
+    /* Start screen */
+    #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; padding: 32px; text-align: center;
+      background: radial-gradient(120% 80% at 50% 0%, #2a2410 0%, #0b0b0c 55%, #000 100%); }
+    #start h1 { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -1px; }
+    #start p { margin: 0 0 18px; font-size: 15px; line-height: 1.6; color: var(--dim); }
+    #startBtn { width: 92px; height: 92px; border-radius: 50%; background: var(--accent); color: #1a1500;
+      font-size: 17px; font-weight: 800; box-shadow: 0 0 0 6px rgba(255,216,77,.18), 0 12px 40px rgba(255,216,77,.25); }
+    #startBtn:active { transform: scale(.96); }
+    #startMsg { min-height: 20px; font-size: 13px; color: var(--dim); margin-top: 8px; }
+
+    /* Photo viewer */
+    #viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); flex-direction: column; }
+    #viewer.show { display: flex; }
+    #viewerImg { flex: 1; min-height: 0; width: 100%; object-fit: contain; padding: calc(env(safe-area-inset-top) + 12px) 12px 12px; }
+    #viewerBar { display: flex; gap: 10px; padding: 0 14px calc(env(safe-area-inset-bottom) + 16px); }
+    #viewerBar button { flex: 1; padding: 15px 0; border-radius: 14px; font-size: 16px; font-weight: 700;
+      background: rgba(255,255,255,.12); }
+    #viewerBar button.primary { background: var(--accent); color: #1a1500; }
+    #viewerNote { text-align: center; font-size: 12px; color: var(--dim); padding: 0 14px 10px; }
   </style>
 </head>
 <body>
-  <button id="startBtn">시작</button>
-  <div id="status">시작 버튼을 누르세요</div>
-  <select id="camSelect" style="display:none; font-size:16px; padding:8px; margin:8px;"></select>
   <!-- playsinline + muted are required for inline video on iPhone Safari -->
   <video id="video" autoplay playsinline muted></video>
-  <div id="info"></div>
-  <div id="hint" style="display:none; font-size:14px; padding:4px;">사진을 누르면 저장/공유할 수 있어요</div>
-  <div id="gallery"></div>
+  <div class="shade top"></div>
+  <div class="shade bottom"></div>
+
+  <div id="topbar">
+    <div id="status" class="pill">준비 중</div>
+    <div id="spacer"></div>
+    <select id="camSelect" class="pill" aria-label="카메라 선택"></select>
+    <button id="debugBtn" class="pill" aria-label="숫자 보기">i</button>
+  </div>
+
+  <div id="debug" class="pill"></div>
+  <div id="count"></div>
+  <div id="flash"></div>
+
+  <div id="bottom">
+    <div id="chips">
+      <div class="chip pill" id="chipFace">얼굴</div>
+      <div class="chip pill" id="chipAngle">정면</div>
+      <div class="chip pill" id="chipEyes">눈</div>
+      <div class="chip pill" id="chipSmile">미소</div>
+    </div>
+    <div id="stripRow">
+      <div id="countLabel"><b id="photoCount">0</b>장</div>
+      <div id="gallery"><span id="emptyHint">정면에서 웃으면 자동으로 찍혀요</span></div>
+    </div>
+  </div>
+
+  <div id="viewer">
+    <img id="viewerImg" alt="">
+    <div id="viewerNote">아이폰은 사진을 길게 눌러 "사진 앱에 저장"도 할 수 있어요</div>
+    <div id="viewerBar">
+      <button id="closeBtn">닫기</button>
+      <button id="shareBtn">공유</button>
+      <button id="saveBtn" class="primary">저장</button>
+    </div>
+  </div>
+
+  <div id="start">
+    <h1>Selfie Cam</h1>
+    <p>후면 카메라를 얼굴 쪽으로 돌리고<br>정면에서 웃으면 자동으로 찍어요.<br>소리로 알려주니 볼륨을 켜주세요.</p>
+    <button id="startBtn">시작</button>
+    <div id="startMsg"></div>
+  </div>
 
   <script type="module">
     // MediaPipe Tasks Vision (runs fully on-device, in the browser)
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
+    const VERSION   = "v3.1";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+    const CAM_KEY   = "selfiecam.deviceId.v3";
 
-    const btn    = document.getElementById('startBtn');
-    const video  = document.getElementById('video');
-    const status = document.getElementById('status');
-    const info   = document.getElementById('info');
+    // Auto-capture rules (simple fixed thresholds for now)
+    const RULES = {
+      smileMin: 0.5,     // smile score must be at least 50%
+      blinkMax: 0.4,     // eyes-closed score must be below 40%
+      yawMax: 25,        // left/right head angle within +-25 degrees
+      pitchMax: 25,      // up/down head angle within +-25 degrees
+      holdMs: 500,       // conditions must hold this long
+      cooldownMs: 3000   // rest time after each photo
+    };
 
-    let landmarker = null;
-    let audioCtx = null;
-    let faceVisible = false;
-    let lastVideoTime = -1;
-    let currentStream = null;
-    let camInfo = '';
-    const camSelect = document.getElementById('camSelect');
-    const CAM_KEY = 'selfiecam.deviceId.v3';
+    const $ = (id) => document.getElementById(id);
+    const video = $("video"), statusEl = $("status"), camSelect = $("camSelect");
+    const debugEl = $("debug"), countEl = $("count"), flashEl = $("flash");
+    const gallery = $("gallery"), photoCountEl = $("photoCount");
+    const startScreen = $("start"), startBtn = $("startBtn"), startMsg = $("startMsg");
+    const viewer = $("viewer"), viewerImg = $("viewerImg");
+    const chips = { face: $("chipFace"), angle: $("chipAngle"), eyes: $("chipEyes"), smile: $("chipSmile") };
 
-    // ---- Camera: open a rear camera at high resolution ----
-    async function startCamera(deviceId) {
-      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-      const v = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-      if (deviceId) v.deviceId = { exact: deviceId };
-      else v.facingMode = { ideal: 'environment' };
-      currentStream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
-      video.srcObject = currentStream;
-      await video.play();
-      const s = currentStream.getVideoTracks()[0].getSettings();
-      camInfo = `${s.width}x${s.height}`;
-      return s.deviceId;
-    }
-
-    function loadSavedCam() {
-      try { return localStorage.getItem(CAM_KEY); } catch (e) { return null; }
-    }
-    function saveCam(id) {
-      try { localStorage.setItem(CAM_KEY, id); } catch (e) { /* ignore */ }
-    }
-
-    // ---- List rear cameras (phones often have wide / ultra-wide / tele) ----
-    async function setupCameraList(activeId) {
-      const all = (await navigator.mediaDevices.enumerateDevices())
-        .filter(d => d.kind === 'videoinput');
-      let cams = all.filter(d => /back|rear|environment|후면/i.test(d.label));
-      if (cams.length === 0) cams = all;
-
-      camSelect.innerHTML = '';
-      cams.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Camera ${i + 1}`;
-        camSelect.appendChild(opt);
-      });
-      if (cams.length > 1) camSelect.style.display = 'inline-block';
-
-      // Pick: saved choice first, else the ultra-wide rear camera
-      // (iPhone label contains "Ultra Wide" / "초광각", Samsung uses "camera2 2")
-      const saved = loadSavedCam();
-      let want = cams.find(d => d.deviceId === saved);
-      if (!want) want = cams.find(d => /ultra|초광각/i.test(d.label));
-      if (!want) want = cams.find(d => /camera2 2,/i.test(d.label));
-      if (want && want.deviceId !== activeId) {
-        activeId = await startCamera(want.deviceId);
-      }
-      camSelect.value = activeId;
-    }
-
-    camSelect.addEventListener('change', async () => {
-      try {
-        await startCamera(camSelect.value);
-        saveCam(camSelect.value);
-      } catch (err) {
-        status.textContent = '카메라 전환 실패: ' + err.name + ' - ' + err.message;
-      }
-    });
+    let landmarker = null, audioCtx = null, currentStream = null;
+    let camInfo = "", faceVisible = false, lastVideoTime = -1, frameCount = 0;
+    let state = "watching";   // 'watching' | 'countdown'
+    let okSince = 0, cooldownUntil = 0, photoCount = 0;
+    let viewing = null;       // { blob, name, url } of the photo open in the viewer
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     // ---- Sound: short beep using Web Audio (no audio files needed) ----
     function beep(freq = 880, durationMs = 150) {
@@ -116,65 +188,105 @@
       osc.stop(audioCtx.currentTime + durationMs / 1000);
     }
 
-    // ---- Load the face model (try GPU first, fall back to CPU) ----
+    // ---- Camera: open a rear camera at high resolution ----
+    async function startCamera(deviceId) {
+      if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+      const v = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+      if (deviceId) v.deviceId = { exact: deviceId };
+      else v.facingMode = { ideal: "environment" };
+      currentStream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+      video.srcObject = currentStream;
+      await video.play();
+      const s = currentStream.getVideoTracks()[0].getSettings();
+      camInfo = `${s.width}x${s.height}`;
+      return s.deviceId;
+    }
+    function loadSavedCam() { try { return localStorage.getItem(CAM_KEY); } catch (e) { return null; } }
+    function saveCam(id)    { try { localStorage.setItem(CAM_KEY, id); } catch (e) { /* ignore */ } }
+
+    // Friendlier names for the camera menu
+    function camName(label, i) {
+      if (/ultra|초광각/i.test(label) || /camera2 2,/i.test(label)) return "초광각";
+      if (/tele|망원/i.test(label)) return "망원";
+      if (/camera2 0,/i.test(label)) return "일반";
+      return label || `카메라 ${i + 1}`;
+    }
+
+    // ---- List rear cameras (phones often have wide / ultra-wide / tele) ----
+    async function setupCameraList(activeId) {
+      const all = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+      let cams = all.filter(d => /back|rear|environment|후면/i.test(d.label));
+      if (cams.length === 0) cams = all;
+
+      camSelect.innerHTML = "";
+      cams.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = camName(d.label, i);
+        camSelect.appendChild(opt);
+      });
+      if (cams.length > 1) camSelect.style.display = "block";
+
+      // Pick: saved choice first, else the ultra-wide rear camera
+      const saved = loadSavedCam();
+      let want = cams.find(d => d.deviceId === saved);
+      if (!want) want = cams.find(d => /ultra|초광각/i.test(d.label));
+      if (!want) want = cams.find(d => /camera2 2,/i.test(d.label));
+      if (want && want.deviceId !== activeId) activeId = await startCamera(want.deviceId);
+      camSelect.value = activeId;
+    }
+    camSelect.addEventListener("change", async () => {
+      try { await startCamera(camSelect.value); saveCam(camSelect.value); }
+      catch (err) { setStatus("카메라 전환 실패"); }
+    });
+
+    // ---- Load the face model ----
     async function createLandmarker() {
       const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
-      const options = (delegate) => ({
-        baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      // CPU only: on some phones the GPU mode returns frozen / wrong values
+      return await FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
         runningMode: "VIDEO",
         numFaces: 1,
         outputFaceBlendshapes: true,              // 52 expression scores
         outputFacialTransformationMatrixes: true  // head pose matrix
       });
-      // CPU only: on some phones the GPU mode returns frozen / wrong values
-      return await FaceLandmarker.createFromOptions(fileset, options("CPU"));
     }
 
     // ---- 4x4 matrix (column-major) -> yaw / pitch / roll in degrees ----
     function matrixToAngles(m) {
       const r = (row, col) => m[col * 4 + row];
       const toDeg = (rad) => rad * 180 / Math.PI;
-      const pitch = toDeg(Math.atan2(r(2, 1), r(2, 2)));  // up / down
-      const yaw   = toDeg(Math.asin(-r(2, 0)));            // left / right
-      const roll  = toDeg(Math.atan2(r(1, 0), r(0, 0)));  // head tilt
-      return { yaw, pitch, roll };
+      return {
+        pitch: toDeg(Math.atan2(r(2, 1), r(2, 2))),  // up / down
+        yaw:   toDeg(Math.asin(-r(2, 0))),           // left / right
+        roll:  toDeg(Math.atan2(r(1, 0), r(0, 0)))   // head tilt
+      };
     }
-
-    // ---- Read one expression score by name ----
     function score(blendshapes, name) {
       const c = blendshapes.find(x => x.categoryName === name);
       return c ? c.score : 0;
     }
 
-    // ---- Main loop: run detection on every new video frame ----
-    let frameCount = 0;
-    function loop() {
-      try {
-        step();
-      } catch (err) {
-        // Show the error on screen instead of silently stopping
-        status.textContent = '오류: ' + err.name + ' - ' + err.message;
-      }
-      requestAnimationFrame(loop);
+    // ---- Small UI helpers ----
+    function setStatus(text, ready = false) {
+      if (statusEl.textContent !== text) statusEl.textContent = text;
+      statusEl.classList.toggle("ready", ready);
+    }
+    function setChip(el, ok) { el.classList.toggle("ok", ok); }
+    function replay(el, text) {       // restart a CSS animation
+      if (text !== undefined) el.textContent = text;
+      el.classList.remove("show");
+      void el.offsetWidth;
+      el.classList.add("show");
     }
 
-    // ---- Auto-capture rules (simple fixed thresholds for now) ----
-    const RULES = {
-      smileMin: 0.5,     // smile score must be at least 50%
-      blinkMax: 0.4,     // eyes-closed score must be below 40%
-      yawMax: 25,        // left/right head angle within +-25 degrees
-      pitchMax: 25,      // up/down head angle within +-25 degrees
-      holdMs: 500,       // conditions must hold this long
-      cooldownMs: 3000   // rest time after each photo
-    };
-    let state = 'watching';   // 'watching' | 'countdown'
-    let okSince = 0;
-    let cooldownUntil = 0;
-    let photoCount = 0;
-    const gallery = document.getElementById('gallery');
-    const hint = document.getElementById('hint');
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const mark = (ok) => ok ? '✅' : '❌';
+    // ---- Main loop ----
+    function loop() {
+      try { step(); }
+      catch (err) { setStatus("오류: " + err.message); }
+      requestAnimationFrame(loop);
+    }
 
     function step() {
       if (video.readyState < 2) return;   // camera is switching, no frame yet
@@ -185,68 +297,67 @@
       const now = performance.now();
       const result = landmarker.detectForVideo(video, now);
       const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
-      let allOk = false;
-      let html;
+      let okAngle = false, okEyes = false, okSmile = false;
+      let dbg = "face: no";
 
       if (hasFace) {
         if (!faceVisible) beep(880);   // high beep: face found
         faceVisible = true;
-
         const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
         const bs = result.faceBlendshapes[0].categories;
         const smile = (score(bs, "mouthSmileLeft") + score(bs, "mouthSmileRight")) / 2;
         const blink = (score(bs, "eyeBlinkLeft") + score(bs, "eyeBlinkRight")) / 2;
-
-        const okSmile = smile >= RULES.smileMin;
-        const okEyes  = blink <  RULES.blinkMax;
-        const okYaw   = Math.abs(yaw)   <= RULES.yawMax;
-        const okPitch = Math.abs(pitch) <= RULES.pitchMax;
-        allOk = okSmile && okEyes && okYaw && okPitch;
-
-        html =
-          `얼굴: ✅<br>` +
-          `좌우(yaw): ${yaw.toFixed(0)}° ${mark(okYaw)}<br>` +
-          `상하(pitch): ${pitch.toFixed(0)}° ${mark(okPitch)}<br>` +
-          `기울기(roll): ${roll.toFixed(0)}°<br>` +
-          `미소: ${(smile * 100).toFixed(0)}% ${mark(okSmile)}<br>` +
-          `눈 감음: ${(blink * 100).toFixed(0)}% ${mark(okEyes)}`;
+        okAngle = Math.abs(yaw) <= RULES.yawMax && Math.abs(pitch) <= RULES.pitchMax;
+        okEyes  = blink < RULES.blinkMax;
+        okSmile = smile >= RULES.smileMin;
+        dbg = `yaw   ${yaw.toFixed(0)}°<br>pitch ${pitch.toFixed(0)}°<br>roll  ${roll.toFixed(0)}°<br>` +
+              `smile ${(smile * 100).toFixed(0)}%<br>blink ${(blink * 100).toFixed(0)}%`;
       } else {
         if (faceVisible) beep(330);    // low beep: face lost
         faceVisible = false;
-        html = `얼굴: ❌ (찾는 중)`;
       }
+      const allOk = hasFace && okAngle && okEyes && okSmile;
 
-      // Decide whether to start the countdown
-      let label = '조건 기다리는 중';
-      if (state === 'countdown') {
-        label = '곧 촬영! 📸';
+      setChip(chips.face, hasFace);
+      setChip(chips.angle, okAngle);
+      setChip(chips.eyes, okEyes);
+      setChip(chips.smile, okSmile);
+
+      // Status text + countdown trigger
+      if (state === "countdown") {
+        setStatus("곧 찍어요", true);
       } else if (now < cooldownUntil) {
-        label = '잠시 쉬는 중';
+        setStatus("찍었어요 ✓", true);
         okSince = 0;
       } else if (!allOk) {
         okSince = 0;
-      } else if (!okSince) {
-        okSince = now;
-      } else if (now - okSince >= RULES.holdMs) {
-        okSince = 0;
-        countdownAndShoot();
+        if (!hasFace) setStatus("얼굴을 찾는 중");
+        else if (!okAngle) setStatus("정면을 봐주세요");
+        else if (!okEyes) setStatus("눈을 떠주세요");
+        else setStatus("웃어보세요");
+      } else {
+        setStatus("좋아요, 그대로!", true);
+        if (!okSince) okSince = now;
+        else if (now - okSince >= RULES.holdMs) { okSince = 0; countdownAndShoot(); }
       }
 
-      html += `<br>상태: ${label}<br>찍은 사진: ${photoCount}장`;
-      html += `<br><small>v3.0 / ${camInfo} / frame ${frameCount}</small>`;
-      info.innerHTML = html;
+      if (debugEl.classList.contains("show")) {
+        debugEl.innerHTML = `${dbg}<br>${camInfo}<br>frame ${frameCount}<br>${VERSION}`;
+      }
     }
 
-    // ---- Beep-beep-beep, then take the photo ----
+    // ---- 3, 2, 1 with beeps, then take the photo ----
     async function countdownAndShoot() {
-      state = 'countdown';
+      state = "countdown";
       try {
-        for (let i = 0; i < 3; i++) {
+        for (let n = 3; n >= 1; n--) {
           beep(1000, 120);
+          replay(countEl, String(n));
           await sleep(450);
         }
         if (faceVisible) {
           takePhoto();
+          replay(flashEl);
           beep(1500, 60);                       // shutter sound: two quick clicks
           setTimeout(() => beep(1500, 60), 120);
         } else {
@@ -254,63 +365,80 @@
         }
       } finally {
         cooldownUntil = performance.now() + RULES.cooldownMs;
-        state = 'watching';
+        state = "watching";
       }
     }
 
     // ---- Copy the current video frame into a JPEG (stays on the phone) ----
     function takePhoto() {
-      const c = document.createElement('canvas');
+      const c = document.createElement("canvas");
       c.width = video.videoWidth;
       c.height = video.videoHeight;
-      c.getContext('2d').drawImage(video, 0, 0);
+      c.getContext("2d").drawImage(video, 0, 0);
       c.toBlob((blob) => {
         if (!blob) return;
         photoCount++;
-        const name = `selfie_${Date.now()}.jpg`;
-        const img = document.createElement('img');
-        img.src = URL.createObjectURL(blob);
-        img.alt = name;
-        img.addEventListener('click', () => savePhoto(blob, name));
+        photoCountEl.textContent = photoCount;
+        const photo = { blob, name: `selfie_${Date.now()}.jpg`, url: URL.createObjectURL(blob) };
+        const img = document.createElement("img");
+        img.src = photo.url;
+        img.alt = photo.name;
+        img.addEventListener("click", () => openViewer(photo));
+        const hint = $("emptyHint");
+        if (hint) hint.remove();
         gallery.prepend(img);
-        hint.style.display = 'block';
-      }, 'image/jpeg', 0.95);
+      }, "image/jpeg", 0.95);
     }
 
-    // ---- Tap a photo: share sheet if available, otherwise download ----
-    async function savePhoto(blob, name) {
-      const file = new File([blob], name, { type: 'image/jpeg' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file] }); } catch (e) { /* user cancelled */ }
+    // ---- Photo viewer: save (download) or share ----
+    function openViewer(photo) {
+      viewing = photo;
+      viewerImg.src = photo.url;
+      viewer.classList.add("show");
+    }
+    $("closeBtn").addEventListener("click", () => viewer.classList.remove("show"));
+    $("saveBtn").addEventListener("click", () => {
+      if (!viewing) return;
+      const a = document.createElement("a");
+      a.href = viewing.url;
+      a.download = viewing.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    $("shareBtn").addEventListener("click", async () => {
+      if (!viewing) return;
+      const file = new File([viewing.blob], viewing.name, { type: "image/jpeg" });
+      if (!(navigator.canShare && navigator.canShare({ files: [file] }))) {
+        $("viewerNote").textContent = "이 브라우저는 공유를 지원하지 않아요. 저장을 눌러주세요.";
         return;
       }
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
-    }
+      try { await navigator.share({ files: [file] }); } catch (e) { /* user cancelled */ }
+    });
+
+    $("debugBtn").addEventListener("click", () => debugEl.classList.toggle("show"));
 
     // ---- Start button: sound + camera + model ----
-    btn.addEventListener('click', async () => {
-      btn.style.display = 'none';
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
       try {
         // iPhone only allows sound after a tap, so create audio here
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         await audioCtx.resume();
 
-        status.textContent = '카메라 켜는 중...';
+        startMsg.textContent = "카메라 켜는 중…";
         const activeId = await startCamera(null);
         await setupCameraList(activeId);
 
-        status.textContent = '얼굴 인식 모델 불러오는 중... (처음엔 10초 정도)';
+        startMsg.textContent = "얼굴 인식 준비 중… (처음엔 10초 정도)";
         landmarker = await createLandmarker();
 
-        status.textContent = '준비 완료 ✅ 얼굴을 비춰보세요';
+        startScreen.style.display = "none";
         beep(660, 100);
         loop();
       } catch (err) {
-        status.textContent = '실패: ' + err.name + ' - ' + err.message;
-        btn.style.display = 'inline-block';
+        startMsg.textContent = "실패: " + err.name + " - " + err.message;
+        startBtn.disabled = false;
       }
     });
   </script>
