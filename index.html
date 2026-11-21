@@ -19,7 +19,15 @@
     button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
 
     /* Camera preview fills the whole screen */
-    #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b0b0c; }
+    #video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0b0b0c; }
+
+    /* 3x3 grid drawn exactly over the video frame, with the nose target */
+    #grid { position: fixed; pointer-events: none; }
+    #grid i { position: absolute; background: rgba(255,255,255,.38); }
+    #grid .v { top: 0; bottom: 0; width: 1px; }
+    #grid .h { left: 0; right: 0; height: 1px; }
+    #grid .target { width: 18px; height: 18px; margin: -9px 0 0 -9px; left: 50%; top: 33.333%;
+      background: none; border: 2px solid var(--accent); border-radius: 50%; }
 
     /* Soft dark gradients so text stays readable over the video */
     .shade { position: fixed; left: 0; right: 0; pointer-events: none; }
@@ -96,6 +104,11 @@
 <body>
   <!-- playsinline + muted are required for inline video on iPhone Safari -->
   <video id="video" autoplay playsinline muted></video>
+  <div id="grid">
+    <i class="v" style="left:33.333%"></i><i class="v" style="left:66.666%"></i>
+    <i class="h" style="top:33.333%"></i><i class="h" style="top:66.666%"></i>
+    <i class="target"></i>
+  </div>
   <div class="shade top"></div>
   <div class="shade bottom"></div>
 
@@ -113,13 +126,13 @@
   <div id="bottom">
     <div id="chips">
       <div class="chip pill" id="chipFace">얼굴</div>
-      <div class="chip pill" id="chipSize">거리</div>
-      <div class="chip pill" id="chipInside">화면 안</div>
+      <div class="chip pill" id="chipNose">코 높이</div>
+      <div class="chip pill" id="chipCenter">가운데</div>
       <div class="chip pill" id="chipStill">멈춤</div>
     </div>
     <div id="stripRow">
       <div id="countLabel"><b id="photoCount">0</b>장</div>
-      <div id="gallery"><span id="emptyHint">표정이나 각도를 바꿀 때마다 찍혀요</span></div>
+      <div id="gallery"><span id="emptyHint">코 끝을 윗줄 가운데(노란 원)에 맞추면 찍혀요</span></div>
     </div>
   </div>
 
@@ -136,7 +149,7 @@
 
   <div id="start">
     <h1>Selfie Cam</h1>
-    <p>후면 카메라를 얼굴 쪽으로 돌리고<br>표정과 각도를 자유롭게 바꿔보세요.<br>바뀔 때마다 자동으로 찍어요.<br>소리로 알려주니 볼륨을 켜주세요.</p>
+    <p>후면 카메라를 얼굴 쪽으로 돌리고<br>음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요.<br>볼륨을 켜주세요.</p>
     <button id="startBtn">시작</button>
     <div id="startMsg"></div>
   </div>
@@ -146,22 +159,27 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v4.0";
+    const VERSION   = "v5.0";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
-    // Auto-capture rules: shoot whenever the face is well framed, holds still
-    // for a moment, and looks different from the last photo taken
+    // Auto-capture rules: shoot only when the composition matches
+    // (nose tip on the upper grid line, horizontally centered), the face holds
+    // still, and it looks different from the last photo taken
     const RULES = {
+      noseY: 1 / 3,        // nose tip should sit on the upper horizontal grid line
+      tolY: 0.035,         // allowed up/down error (fraction of frame height)
+      tolX: 0.07,          // allowed left/right error (fraction of frame width)
+      chinMaxY: 0.56,      // chin must stay above this (otherwise the face is too close)
       minFaceHeight: 0.10, // face height must be at least 10% of the frame height
-      minInside: 0.90,     // at least 90% of the face box must be inside the frame
       angleScale: 40,      // degrees are divided by this before comparing
       stillMs: 300,        // compare with the face 300 ms ago ...
-      stillMax: 0.20,      // ... and it must have changed less than this (not moving)
-      changeMin: 0.45,     // must differ this much from the last photo
-      minGapMs: 1200,      // shortest time between two photos
+      stillMax: 0.25,      // ... and it must have changed less than this (not moving)
+      changeMin: 0.60,     // must differ this much from the last photo
+      minGapMs: 2000,      // shortest time between two photos
       maxPhotos: 40        // stop after this many photos (phone memory)
     };
+    const NOSE_TIP = 1, CHIN = 152;   // MediaPipe face landmark indices
 
     const $ = (id) => document.getElementById(id);
     const video = $("video"), statusEl = $("status"), camSelect = $("camSelect");
@@ -169,11 +187,11 @@
     const gallery = $("gallery"), photoCountEl = $("photoCount");
     const startScreen = $("start"), startBtn = $("startBtn"), startMsg = $("startMsg");
     const viewer = $("viewer"), viewerImg = $("viewerImg");
-    const chips = { face: $("chipFace"), size: $("chipSize"), inside: $("chipInside"), still: $("chipStill") };
+    const chips = { face: $("chipFace"), nose: $("chipNose"), center: $("chipCenter"), still: $("chipStill") };
 
     let landmarker = null, audioCtx = null, currentStream = null;
     let camInfo = "", faceVisible = false, lastVideoTime = -1, frameCount = 0;
-    let photoCount = 0, lastShotAt = 0, lastShotVec = null, framedOk = false;
+    let photoCount = 0, lastShotAt = 0, lastShotVec = null, framedOk = false, noFaceSince = 0;
     const recent = [];        // feature vectors from the last few hundred ms
     let viewing = null;       // { blob, name, url } of the photo open in the viewer
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -194,7 +212,7 @@
     // ---- Camera: open a rear camera at high resolution ----
     async function startCamera(deviceId) {
       if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-      const v = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+      const v = { width: { ideal: 1920 }, height: { ideal: 1440 } };  // 4:3 like the camera app
       if (deviceId) v.deviceId = { exact: deviceId };
       else v.facingMode = { ideal: "environment" };
       currentStream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
@@ -202,7 +220,38 @@
       await video.play();
       const s = currentStream.getVideoTracks()[0].getSettings();
       camInfo = `${s.width}x${s.height}`;
+      layoutGrid();
       return s.deviceId;
+    }
+
+    // Put the grid exactly on top of the displayed video frame
+    function layoutGrid() {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) return;
+      const W = window.innerWidth, H = window.innerHeight;
+      const k = Math.min(W / vw, H / vh);
+      const g = $("grid");
+      g.style.width = vw * k + "px";
+      g.style.height = vh * k + "px";
+      g.style.left = (W - vw * k) / 2 + "px";
+      g.style.top = (H - vh * k) / 2 + "px";
+    }
+    window.addEventListener("resize", layoutGrid);
+    video.addEventListener("loadedmetadata", layoutGrid);
+
+    // ---- Voice guidance (she cannot see the screen) ----
+    let lastSaid = "", lastSaidAt = 0;
+    function say(text, now) {
+      if (!("speechSynthesis" in window)) return;
+      if (now - lastSaidAt < 1800) return;                       // do not talk over itself
+      if (text === lastSaid && now - lastSaidAt < 4000) return;  // repeat the same hint slowly
+      lastSaid = text;
+      lastSaidAt = now;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ko-KR";
+      u.rate = 1.1;
+      speechSynthesis.speak(u);
     }
 
     // Friendlier names for the camera menu
@@ -323,15 +372,32 @@
       const now = performance.now();
       const result = landmarker.detectForVideo(video, now);
       const hasFace = result.faceLandmarks && result.faceLandmarks.length > 0;
-      let okSize = false, okInside = false, still = false;
+      let okNose = false, okCenter = false, still = false, framed = false;
+      let hint = null;
       let dbg = "face: no";
 
       if (hasFace) {
+        noFaceSince = 0;
+        const lm = result.faceLandmarks[0];
         const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
         const bs = result.faceBlendshapes[0].categories;
-        const box = faceBox(result.faceLandmarks[0]);
-        okSize = box.h >= RULES.minFaceHeight;
-        okInside = box.inside >= RULES.minInside;
+        const box = faceBox(lm);
+        const nose = lm[NOSE_TIP], chin = lm[CHIN];
+
+        // Composition: where is the nose tip compared with the target point?
+        const dy = nose.y - RULES.noseY;   // + means the nose is below the line
+        const dx = nose.x - 0.5;           // + means the nose is right of center
+        okNose = Math.abs(dy) <= RULES.tolY;
+        okCenter = Math.abs(dx) <= RULES.tolX;
+        const okSize = box.h >= RULES.minFaceHeight;
+        const okFar = chin.y <= RULES.chinMaxY;
+
+        // One spoken hint at a time, most important first
+        if (!okSize) hint = "조금 더 가까이";
+        else if (!okFar) hint = "조금 더 멀리";
+        else if (!okNose) hint = dy > 0 ? "폰을 조금 내려요" : "폰을 조금 올려요";
+        else if (!okCenter) hint = dx < 0 ? "폰을 오른쪽으로" : "폰을 왼쪽으로";
+        framed = !hint;
 
         // Is the face holding still? Compare with the sample from ~300 ms ago
         const vec = featureVec(bs, yaw, pitch, roll);
@@ -343,7 +409,7 @@
 
         const change = lastShotVec ? dist(vec, lastShotVec) : Infinity;
         const full = photoCount >= RULES.maxPhotos;
-        if (okSize && okInside && still && !full &&
+        if (framed && still && !full &&
             change >= RULES.changeMin && now - lastShotAt >= RULES.minGapMs) {
           lastShotAt = now;
           lastShotVec = vec;
@@ -353,32 +419,38 @@
           setTimeout(() => beep(1500, 60), 120);
         }
 
-        const smile = (score(bs, "mouthSmileLeft") + score(bs, "mouthSmileRight")) / 2;
-        dbg = `yaw   ${yaw.toFixed(0)}°<br>pitch ${pitch.toFixed(0)}°<br>roll  ${roll.toFixed(0)}°<br>` +
-              `smile ${(smile * 100).toFixed(0)}%<br>` +
+        dbg = `nose x ${(nose.x * 100).toFixed(0)}% y ${(nose.y * 100).toFixed(0)}%<br>` +
+              `chin y ${(chin.y * 100).toFixed(0)}%<br>` +
               `size  ${(box.h * 100).toFixed(0)}%<br>` +
+              `yaw ${yaw.toFixed(0)}° pitch ${pitch.toFixed(0)}° roll ${roll.toFixed(0)}°<br>` +
               `move  ${isFinite(move) ? move.toFixed(2) : "-"}<br>` +
               `change ${isFinite(change) ? change.toFixed(2) : "-"}`;
       } else {
         recent.length = 0;
+        if (!noFaceSince) noFaceSince = now;
       }
 
-      // Sound: high beep when the face becomes well framed, low beep when it is lost
-      const framed = hasFace && okSize && okInside;
+      // Sound: high beep when the composition is right, low beep when it is lost
       if (framed && !framedOk) beep(880);
       if (!framed && framedOk) beep(330);
       framedOk = framed;
 
       setChip(chips.face, hasFace);
-      setChip(chips.size, okSize);
-      setChip(chips.inside, okInside);
+      setChip(chips.nose, okNose);
+      setChip(chips.center, okCenter);
       setChip(chips.still, still);
 
-      if (!hasFace) setStatus("얼굴을 찾는 중");
-      else if (!okSize) setStatus("조금 더 가까이");
-      else if (!okInside) setStatus("얼굴이 화면 밖으로 나갔어요");
-      else if (photoCount >= RULES.maxPhotos) setStatus(`${RULES.maxPhotos}장 다 찍었어요`, true);
-      else setStatus("찍는 중 · 표정을 바꿔보세요", true);
+      if (!hasFace) {
+        setStatus("얼굴을 찾는 중");
+        if (now - noFaceSince > 2500) say("얼굴이 안 보여요", now);
+      } else if (hint) {
+        setStatus(hint);
+        say(hint, now);
+      } else if (photoCount >= RULES.maxPhotos) {
+        setStatus(`${RULES.maxPhotos}장 다 찍었어요`, true);
+      } else {
+        setStatus("좋아요, 찍는 중", true);
+      }
 
       if (debugEl.classList.contains("show")) {
         debugEl.innerHTML = `${dbg}<br>${camInfo}<br>frame ${frameCount}<br>${VERSION}`;
@@ -451,6 +523,7 @@
         // iPhone only allows sound after a tap, so create audio here
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         await audioCtx.resume();
+        say("시작할게요", performance.now());   // iPhone needs the first speech inside a tap
 
         startMsg.textContent = "카메라 켜는 중…";
         const activeId = await startCamera(null);
