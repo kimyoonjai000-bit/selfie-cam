@@ -120,16 +120,18 @@
       gap: 14px; padding: 32px; text-align: center;
       background: linear-gradient(180deg, #fff3ec 0%, #ffe3ec 55%, #ffd3e2 100%); color: #5a3340; }
     #start, #start button { font-family: "Gaegu", "Jua", ui-rounded, sans-serif; }
-    #start h1 { margin: 0; font-size: 46px; font-weight: 700; letter-spacing: 0; color: #e0607f; }
+    #start h1 { margin: 0; white-space: nowrap; font-size: min(46px, 11.5vw); font-weight: 700; letter-spacing: 0; color: #e0607f; }
     #start h1, #slogan, #startBtn { position: relative; }
     #slogan { font-size: 26px; font-weight: 700; line-height: 1.35; color: #8a5a66; margin-bottom: 10px; }
     #slogan b { font-weight: 700; font-size: 38px; color: #e0607f; }
     #startFoot { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 12px); }
-    #startFoot p { margin: 0 0 4px; font-size: 14px; line-height: 1.5; color: #a67784; }
+    #startFoot p { margin: 0 0 4px; font-size: 14px; line-height: 1.45; color: #a67784; word-break: keep-all; }
+    #startFoot p span { display: inline-block; white-space: nowrap; }
     #startBtn { width: 92px; height: 92px; border-radius: 50%; background: var(--accent); color: #4a2230;
       font-size: 27px; font-weight: 700; color: #fff; background: #ff7fa6; box-shadow: 0 0 0 8px rgba(255,127,166,.22), 0 12px 30px rgba(255,127,166,.35); }
     #startBtn:active { transform: scale(.96); }
-    #startMsg { min-height: 18px; margin-bottom: 6px; font-size: 16px; font-weight: 700; color: #e0607f; }
+    #startMsg { height: 22px; line-height: 22px; margin-bottom: 4px; font-size: 15px; font-weight: 700; color: #e0607f;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* Photo viewer */
     #viewer { display: none; position: fixed; inset: 0; background: #000; flex-direction: column; }
@@ -210,7 +212,8 @@
     <button id="startBtn">시작</button>
     <div id="startFoot">
       <div id="startMsg"></div>
-      <p>후면 카메라를 얼굴 쪽으로 돌리고 음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요. 볼륨을 켜주세요.</p>
+      <p><span>후면 카메라를 얼굴 쪽으로 돌리고</span> <span>음성 안내에 따라 폰을 움직여 주세요.</span>
+        <span>구도가 맞으면 자동으로 찍어요.</span> <span>볼륨을 켜주세요.</span></p>
     </div>
   </div>
 
@@ -219,7 +222,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.14";
+    const VERSION   = "v6.15";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -1018,6 +1021,49 @@
       $("startMascot").appendChild(pair);
     }
 
+    // Keep the stickers off the title, slogan, button and bottom text (screen sizes differ).
+    // A sticker that lands on something is moved: first nudged up/down, then to the other side,
+    // then made smaller. Only if nothing works is it hidden.
+    function fitStickers() {
+      const pad = 6, W = window.innerWidth;
+      const keep = ["#start h1", "#slogan", "#startBtn", "#startFoot"].map(q => document.querySelector(q).getBoundingClientRect());
+      const foot = keep[3];
+      const hit = (a, b) => a.left < b.right + pad && a.right > b.left - pad && a.top < b.bottom + pad && a.bottom > b.top - pad;
+      const placed = [];
+      const pairs = [...$("startMascot").children];
+      pairs.forEach((el, i) => {
+        const st = STICKERS[i];
+        el.style.visibility = "";
+        const tryAt = (leftPx, topPx, sc) => {
+          el.style.left = leftPx + "px";
+          el.style.top = topPx + "px";
+          el.style.transform = `rotate(${st.rot}deg) scale(${sc})`;
+          const r = el.getBoundingClientRect();
+          const ok = r.top >= 0 && r.left >= -4 && r.right <= W + 4 && r.bottom <= foot.top - pad &&
+                     !keep.some(k => hit(r, k)) && !placed.some(p => hit(r, p));
+          return ok ? r : null;
+        };
+        el.style.left = st.left; el.style.top = st.top; el.style.transform = `rotate(${st.rot}deg)`;
+        const base = el.getBoundingClientRect();
+        const x0 = el.offsetLeft, y0 = el.offsetTop, w = base.width;
+        const xs = [x0, 4, W - w - 4];
+        for (const sc of [1, 0.85, 0.7]) {
+          for (const x of xs) {
+            for (let d = 0; d <= 260; d += 10) {
+              for (const y of d ? [y0 - d, y0 + d] : [y0]) {
+                const r = tryAt(x, y, sc);
+                if (r) { placed.push(r); return; }
+              }
+            }
+          }
+        }
+        el.style.visibility = "hidden";
+      });
+    }
+    window.addEventListener("resize", fitStickers);
+    if (document.fonts) document.fonts.ready.then(fitStickers);
+    requestAnimationFrame(fitStickers);
+
     let shotUntil = 0, wakeUntil = 0, sulkUntil = 0, wasSleeping = false;
     function mascotShot() {
       shotUntil = performance.now() + 1100;
@@ -1037,7 +1083,7 @@
         const activeId = await startCamera(null);
         await setupLenses(activeId);
 
-        startMsg.textContent = "얼굴 인식 준비 중… (처음엔 10초 정도)";
+        startMsg.textContent = "준비 중… 처음엔 10초쯤 걸려요";
         landmarker = await createLandmarker();
 
         startScreen.style.display = "none";
