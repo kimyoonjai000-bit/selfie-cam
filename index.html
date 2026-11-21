@@ -116,7 +116,7 @@
       gap: 14px; padding: 32px; text-align: center;
       background: linear-gradient(180deg, #fff3ec 0%, #ffe3ec 55%, #ffd3e2 100%); color: #5a3340; }
     #start h1 { margin: 0; font-size: 36px; font-weight: 400; letter-spacing: 0; color: #e0607f; }
-    #start h1, #slogan, #startBtn, #startMsg { position: relative; }
+    #start h1, #slogan, #startBtn { position: relative; }
     #slogan { font-size: 21px; line-height: 1.5; color: #8a5a66; margin-bottom: 10px; }
     #slogan b { font-weight: 400; font-size: 30px; color: #e0607f; }
     #startFoot { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 12px); }
@@ -124,7 +124,7 @@
     #startBtn { width: 92px; height: 92px; border-radius: 50%; background: var(--accent); color: #4a2230;
       font-size: 20px; font-weight: 400; color: #fff; background: #ff7fa6; box-shadow: 0 0 0 8px rgba(255,127,166,.22), 0 12px 30px rgba(255,127,166,.35); }
     #startBtn:active { transform: scale(.96); }
-    #startMsg { min-height: 20px; font-size: 14px; color: #8a5a66; margin-top: 8px; }
+    #startMsg { min-height: 18px; margin-bottom: 6px; font-size: 13px; color: #e0607f; }
 
     /* Photo viewer */
     #viewer { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); flex-direction: column; }
@@ -198,8 +198,8 @@
     <h1>YJ Selfie Camera</h1>
     <div id="slogan">우디니에 의한<br>우디니를 위한<br><b>우의우위</b></div>
     <button id="startBtn">시작</button>
-    <div id="startMsg"></div>
     <div id="startFoot">
+      <div id="startMsg"></div>
       <p>후면 카메라를 얼굴 쪽으로 돌리고 음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요. 볼륨을 켜주세요.</p>
     </div>
   </div>
@@ -209,7 +209,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.8";
+    const VERSION   = "v6.9";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
