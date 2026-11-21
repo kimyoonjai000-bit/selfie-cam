@@ -45,9 +45,6 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .2s, color .2s; }
     #status.ready { background: var(--accent); color: #4a2230; border-color: transparent; }
     #spacer { flex: 1; }
-    #camSelect { display: none; max-width: 42vw; padding: 9px 12px; font-size: 13px; color: var(--text);
-      appearance: none; -webkit-appearance: none; outline: none; }
-    #camSelect option { color: #000; }
     #debugBtn { width: 38px; height: 38px; font-size: 14px; font-weight: 700; color: var(--dim); flex: none; }
 
     /* Big countdown number + white flash */
@@ -63,6 +60,13 @@
     /* Bottom panel: condition chips + photo strip */
     #bottom { position: fixed; left: 0; right: 0; bottom: 0;
       padding: 0 14px calc(env(safe-area-inset-bottom) + 14px); }
+    #zoomBar { display: none; width: max-content; margin: 0 auto 12px; padding: 5px; gap: 4px; border-radius: 999px;
+      background: rgba(0,0,0,.45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+    #zoomBar.show { display: flex; }
+    #zoomBar button { width: 44px; height: 44px; border-radius: 50%; font-size: 14px; color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-weight: 600; transition: background .15s; }
+    #zoomBar button.on { background: rgba(255,255,255,.22); color: var(--accent); font-size: 15px; }
+    #video { transform-origin: 50% 50%; }
     #chips { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
     .chip { padding: 8px 10px; font-size: 12px; white-space: nowrap; font-weight: 600; color: var(--dim);
       transition: background .15s, color .15s, border-color .15s; }
@@ -165,7 +169,6 @@
     <div id="miniMascot"><div class="mascot" id="miniGirl"></div><div class="mascot" id="miniBoy"></div></div>
     <div id="status" class="pill" hidden>준비 중</div>
     <div id="spacer"></div>
-    <select id="camSelect" class="pill" aria-label="카메라 선택"></select>
     <button id="debugBtn" class="pill" aria-label="숫자 보기">i</button>
   </div>
 
@@ -174,6 +177,7 @@
   <div id="flash"></div>
 
   <div id="bottom">
+    <div id="zoomBar"></div>
     <div id="chips">
       <div class="chip pill" id="chipDist">거리</div>
       <div class="chip pill" id="chipNose">코 높이</div>
@@ -215,7 +219,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.12";
+    const VERSION   = "v6.13";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -240,7 +244,7 @@
     const NOSE_TIP = 1, CHIN = 152;   // MediaPipe face landmark indices
 
     const $ = (id) => document.getElementById(id);
-    const video = $("video"), statusEl = $("status"), camSelect = $("camSelect");
+    const video = $("video"), statusEl = $("status");
     const debugEl = $("debug"), countEl = $("count"), flashEl = $("flash");
     const gallery = $("gallery"), photoCountEl = $("photoCount");
     const startScreen = $("start"), startBtn = $("startBtn"), startMsg = $("startMsg");
@@ -286,17 +290,23 @@
       return s.deviceId;
     }
 
-    // Put the grid exactly on top of the displayed video frame
+    // Put the grid exactly on top of the displayed video frame.
+    // With digital zoom the video is scaled up around its centre and clipped to the same frame.
+    let dzoom = 1;   // digital zoom factor (1 = none)
     function layoutGrid() {
       const vw = video.videoWidth, vh = video.videoHeight;
       if (!vw || !vh) return;
       const W = window.innerWidth, H = window.innerHeight;
       const k = Math.min(W / vw, H / vh);
+      const fw = vw * k, fh = vh * k, left = (W - fw) / 2, top = (H - fh) / 2;
       const g = $("grid");
-      g.style.width = vw * k + "px";
-      g.style.height = vh * k + "px";
-      g.style.left = (W - vw * k) / 2 + "px";
-      g.style.top = (H - vh * k) / 2 + "px";
+      g.style.width = fw + "px";
+      g.style.height = fh + "px";
+      g.style.left = left + "px";
+      g.style.top = top + "px";
+      const ix = left + fw * (1 - 1 / dzoom) / 2, iy = top + fh * (1 - 1 / dzoom) / 2;
+      video.style.transform = dzoom > 1 ? `scale(${dzoom})` : "";
+      video.style.clipPath = dzoom > 1 ? `inset(${iy}px ${ix}px ${iy}px ${ix}px)` : "";
     }
     window.addEventListener("resize", layoutGrid);
     video.addEventListener("loadedmetadata", layoutGrid);
@@ -316,39 +326,94 @@
       speechSynthesis.speak(u);
     }
 
-    // Friendlier names for the camera menu
-    function camName(label, i) {
-      if (/ultra|초광각/i.test(label) || /camera2?\s*2,/i.test(label)) return "초광각";
-      if (/tele|망원/i.test(label)) return "망원";
-      if (/camera2 0,/i.test(label)) return "일반";
-      return label || `카메라 ${i + 1}`;
+    // ---- Lenses and zoom (like the camera app: .5 / 1x / 2 / 3) ----
+    // .5 = ultra-wide lens. 1x = main lens. 2 and 3 = main lens zoomed in
+    // (the phone's own zoom when the browser offers it, otherwise a centre crop).
+    const lenses = { ultra: null, main: null };
+    let activeDevice = null, zoomLevel = 1, zoomBusy = false, levels = [];
+    const isUltra = (l) => /ultra|초광각/i.test(l) || /camera2?\s*2,/i.test(l);
+    const isMain = (l) => /camera2?\s*0,/i.test(l) ||
+      (/back|rear|후면/i.test(l) && !/ultra|tele|dual|triple|초광각|망원|front/i.test(l));
+
+    function trackZoomCaps() {
+      const t = currentStream && currentStream.getVideoTracks()[0];
+      const c = t && t.getCapabilities ? t.getCapabilities() : {};
+      return c.zoom ? { t, min: c.zoom.min, max: c.zoom.max } : null;
+    }
+    async function setHwZoom(value) {
+      const z = trackZoomCaps();
+      if (!z) return false;
+      const v = Math.max(z.min, Math.min(z.max, value));
+      try { await z.t.applyConstraints({ advanced: [{ zoom: v }] }); } catch (e) { return false; }
+      return Math.abs(v - value) < 0.05;
     }
 
-    // ---- List rear cameras (phones often have wide / ultra-wide / tele) ----
-    async function setupCameraList(activeId) {
+    async function setupLenses(activeId) {
+      activeDevice = activeId;
       const all = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
-      let cams = all.filter(d => /back|rear|environment|후면/i.test(d.label));
+      let cams = all.filter(d => /back|rear|environment|후면/i.test(d.label) || /camera2?\s*[02],/i.test(d.label));
       if (cams.length === 0) cams = all;
+      const u = cams.find(d => isUltra(d.label));
+      const m = cams.find(d => isMain(d.label) && !isUltra(d.label));
+      lenses.ultra = u ? u.deviceId : null;
+      lenses.main = m ? m.deviceId : activeId;
 
-      camSelect.innerHTML = "";
-      cams.forEach((d, i) => {
-        const opt = document.createElement("option");
-        opt.value = d.deviceId;
-        opt.textContent = camName(d.label, i);
-        camSelect.appendChild(opt);
-      });
-      if (cams.length > 1) camSelect.style.display = "block";
-
-      // Always start on the ultra-wide rear camera (a manual pick lasts until the page is reloaded)
-      let want = cams.find(d => /ultra|초광각/i.test(d.label));
-      if (!want) want = cams.find(d => /camera2?\s*2,/i.test(d.label));
-      if (want && want.deviceId !== activeId) activeId = await startCamera(want.deviceId);
-      camSelect.value = activeId;
+      levels = [1, 2, 3];
+      let start = 1;
+      if (lenses.ultra && lenses.ultra !== lenses.main) { levels.unshift(0.5); start = 0.5; }
+      else {
+        // One "logical" camera: the phone may still zoom out below 1x by itself
+        const z = trackZoomCaps();
+        if (z && z.min < 0.95) { levels.unshift(Math.round(z.min * 10) / 10); start = levels[0]; }
+      }
+      buildZoomBar();
+      await setZoom(start);   // she likes the ultra-wide, so start there
     }
-    camSelect.addEventListener("change", async () => {
-      try { await startCamera(camSelect.value); }
-      catch (err) { setStatus("카메라 전환 실패"); }
-    });
+
+    function zoomLabel(v, on) {
+      const n = v < 1 ? String(v).replace(/^0/, "") : String(v);
+      return on ? n + "×" : n;
+    }
+    function buildZoomBar() {
+      const bar = $("zoomBar");
+      bar.innerHTML = "";
+      for (const v of levels) {
+        const b = document.createElement("button");
+        b.dataset.z = v;
+        b.addEventListener("click", () => setZoom(v));
+        bar.appendChild(b);
+      }
+      bar.classList.toggle("show", levels.length > 1);
+      paintZoomBar();
+    }
+    function paintZoomBar() {
+      for (const b of $("zoomBar").children) {
+        const v = Number(b.dataset.z), on = v === zoomLevel;
+        b.classList.toggle("on", on);
+        b.textContent = zoomLabel(v, on);
+      }
+    }
+
+    async function setZoom(v) {
+      if (zoomBusy) return;
+      zoomBusy = true;
+      try {
+        const useUltra = v < 1 && lenses.ultra && lenses.ultra !== lenses.main;
+        const dev = useUltra ? lenses.ultra : lenses.main;
+        if (dev && dev !== activeDevice) activeDevice = await startCamera(dev);
+        const want = useUltra ? 1 : v;          // zoom still needed on the chosen lens
+        const hw = await setHwZoom(want);       // phone's own zoom, if the browser offers it
+        dzoom = !hw && want > 1 ? want : 1;     // otherwise a centre crop
+        zoomLevel = v;
+        layoutGrid();
+        paintZoomBar();
+        recent.length = 0;
+      } catch (err) {
+        console.log("zoom failed", err);
+      } finally {
+        zoomBusy = false;
+      }
+    }
 
     // ---- Load the face model ----
     let filesetPromise = null;
@@ -449,8 +514,10 @@
         const lm = result.faceLandmarks[0];
         const { yaw, pitch, roll } = matrixToAngles(result.facialTransformationMatrixes[0].data);
         const bs = result.faceBlendshapes[0].categories;
+        const view = (p) => ({ x: (p.x - 0.5) * dzoom + 0.5, y: (p.y - 0.5) * dzoom + 0.5 });
         const box = faceBox(lm);
-        const nose = lm[NOSE_TIP], chin = lm[CHIN];
+        box.h *= dzoom;
+        const nose = view(lm[NOSE_TIP]), chin = view(lm[CHIN]);
 
         // Composition: where is the nose tip compared with the target point?
         const dy = nose.y - RULES.noseY;   // + means the nose is below the line
@@ -591,10 +658,12 @@
     // ---- Copy the current video frame into a JPEG (stays on the phone) ----
     function takePhoto() {
       // 1) Grab the frame right now
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const sw = Math.round(vw / dzoom), sh = Math.round(vh / dzoom);
       const c = document.createElement("canvas");
-      c.width = video.videoWidth;
-      c.height = video.videoHeight;
-      c.getContext("2d").drawImage(video, 0, 0);
+      c.width = sw;
+      c.height = sh;
+      c.getContext("2d").drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, sw, sh);
 
       // 2) Show a small thumbnail immediately (fast)
       const t = document.createElement("canvas");
@@ -964,7 +1033,7 @@
 
         startMsg.textContent = "카메라 켜는 중…";
         const activeId = await startCamera(null);
-        await setupCameraList(activeId);
+        await setupLenses(activeId);
 
         startMsg.textContent = "얼굴 인식 준비 중… (처음엔 10초 정도)";
         landmarker = await createLandmarker();
