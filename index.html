@@ -124,18 +124,6 @@
     #startBtn { width: 92px; height: 92px; border-radius: 50%; background: var(--accent); color: #4a2230;
       font-size: 20px; font-weight: 400; color: #fff; background: #ff7fa6; box-shadow: 0 0 0 8px rgba(255,127,166,.22), 0 12px 30px rgba(255,127,166,.35); }
     #startBtn:active { transform: scale(.96); }
-    #learnBtn { padding: 4px 8px; font-size: 11px; color: #b88a96; text-decoration: underline; }
-    #refPanel { display: none; position: fixed; inset: 0; background: #0b0b0c; flex-direction: column;
-      padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px); }
-    #refPanel.show { display: flex; }
-    #refPanel h2 { margin: 0 0 10px; font-size: 20px; }
-    #refText { flex: 1; min-height: 0; overflow: auto; margin: 0 0 12px; padding: 12px; border-radius: 12px;
-      background: rgba(255,255,255,.08); font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace;
-      white-space: pre-wrap; text-align: left; }
-    #refBar { display: flex; gap: 10px; }
-    #refBar button { flex: 1; padding: 14px 0; border-radius: 14px; font-size: 16px; font-weight: 700;
-      background: rgba(255,255,255,.12); }
-    #refBar button.primary { background: var(--accent); color: #4a2230; }
     #startMsg { min-height: 20px; font-size: 14px; color: #8a5a66; margin-top: 8px; }
 
     /* Photo viewer */
@@ -213,17 +201,6 @@
     <div id="startMsg"></div>
     <div id="startFoot">
       <p>후면 카메라를 얼굴 쪽으로 돌리고 음성 안내에 따라 폰을 움직여 주세요.<br>구도가 맞으면 자동으로 찍어요. 볼륨을 켜주세요.</p>
-      <button id="learnBtn">기준 사진 구도 분석</button>
-    </div>
-    <input type="file" id="refInput" accept="image/*" multiple hidden>
-  </div>
-
-  <div id="refPanel">
-    <h2>기준 사진 구도 분석</h2>
-    <pre id="refText"></pre>
-    <div id="refBar">
-      <button id="refClose">닫기</button>
-      <button id="refCopy" class="primary">결과 복사</button>
     </div>
   </div>
 
@@ -232,7 +209,7 @@
     import { FaceLandmarker, FilesetResolver }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
-    const VERSION   = "v6.7";
+    const VERSION   = "v6.8";
     const WASM_URL  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
     const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -675,97 +652,6 @@
 
     $("debugBtn").addEventListener("click", () => debugEl.classList.toggle("show"));
 
-    // ---- Reference photo analysis: numbers only, photos never leave the phone ----
-    let imageLandmarker = null;
-    async function getImageLandmarker() {
-      if (!imageLandmarker) {
-        imageLandmarker = await FaceLandmarker.createFromOptions(await getFileset(), {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
-          runningMode: "IMAGE",
-          numFaces: 3,
-          outputFacialTransformationMatrixes: true
-        });
-      }
-      return imageLandmarker;
-    }
-
-    async function analyzeFile(file) {
-      const bmp = await createImageBitmap(file);
-      const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
-      const c = document.createElement("canvas");
-      c.width = Math.round(bmp.width * k);
-      c.height = Math.round(bmp.height * k);
-      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-      bmp.close();
-      const res = (await getImageLandmarker()).detect(c);
-      if (!res.faceLandmarks || res.faceLandmarks.length === 0) return null;
-      // If several faces are found, use the biggest one
-      let best = 0, bestH = 0;
-      res.faceLandmarks.forEach((lm, i) => {
-        const h = faceBox(lm).h;
-        if (h > bestH) { bestH = h; best = i; }
-      });
-      const lm = res.faceLandmarks[best];
-      const a = matrixToAngles(res.facialTransformationMatrixes[best].data);
-      return {
-        x: lm[NOSE_TIP].x * 100, y: lm[NOSE_TIP].y * 100, chin: lm[CHIN].y * 100,
-        size: bestH * 100, yaw: a.yaw, pitch: a.pitch, roll: a.roll,
-        shape: c.width > c.height ? "가로" : "세로"
-      };
-    }
-
-    function median(arr) {
-      const v = [...arr].sort((p, q) => p - q);
-      const m = Math.floor(v.length / 2);
-      return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
-    }
-    function statLine(label, arr, unit) {
-      if (!arr.length) return `${label}: -`;
-      return `${label}: 중앙값 ${median(arr).toFixed(0)}${unit} (최소 ${Math.min(...arr).toFixed(0)} ~ 최대 ${Math.max(...arr).toFixed(0)})`;
-    }
-
-    $("learnBtn").addEventListener("click", () => $("refInput").click());
-    $("refInput").addEventListener("change", async (ev) => {
-      const files = [...ev.target.files];
-      if (!files.length) return;
-      const out = $("refText");
-      $("refPanel").classList.add("show");
-      const rows = [];
-      let failed = 0;
-      for (let i = 0; i < files.length; i++) {
-        out.textContent = `분석 중… ${i + 1} / ${files.length}\n(처음엔 모델을 불러오느라 10초쯤 걸려요)`;
-        try {
-          const r = await analyzeFile(files[i]);
-          if (r) rows.push(r); else failed++;
-        } catch (e) { failed++; }
-      }
-      const pick = (key) => rows.map(r => r[key]);
-      let text = `[${VERSION}] 사진 ${files.length}장 중 얼굴 인식 ${rows.length}장, 실패 ${failed}장\n` +
-        `(x, y, 턱, 크기는 사진 가로/세로에 대한 %, 왼쪽 위가 0)\n\n` +
-        statLine("코 끝 x", pick("x"), "%") + "\n" +
-        statLine("코 끝 y", pick("y"), "%") + "\n" +
-        statLine("턱 끝 y", pick("chin"), "%") + "\n" +
-        statLine("얼굴 크기", pick("size"), "%") + "\n" +
-        statLine("yaw", pick("yaw"), "°") + "\n" +
-        statLine("pitch", pick("pitch"), "°") + "\n" +
-        statLine("roll", pick("roll"), "°") + "\n\n사진별:\n";
-      rows.forEach((r, i) => {
-        text += `${i + 1}. ${r.shape} x${r.x.toFixed(0)} y${r.y.toFixed(0)} 턱${r.chin.toFixed(0)} 크기${r.size.toFixed(0)} ` +
-                `yaw${r.yaw.toFixed(0)} pitch${r.pitch.toFixed(0)} roll${r.roll.toFixed(0)}\n`;
-      });
-      out.textContent = text;
-      ev.target.value = "";
-    });
-    $("refClose").addEventListener("click", () => $("refPanel").classList.remove("show"));
-    $("refCopy").addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText($("refText").textContent);
-        $("refCopy").textContent = "복사됨 ✓";
-      } catch (e) {
-        $("refCopy").textContent = "복사 실패 (길게 눌러 복사)";
-      }
-    });
-
     // ---- Mascot drawing (original goofy monkey, hand-drawn look) ----
     // One body, eight faces. The face shown is chosen with data-face on the container.
     function mascotSVG(kind) {
@@ -975,13 +861,18 @@
     $("miniBoy").innerHTML = mascotSVG("boy");
     setFaces("mini", "idle");
 
-    // Start screen: five couple "stickers" scattered here and there (not in a neat grid)
+    // Start screen: ten couple "stickers" scattered here and there (not in a neat grid)
     const STICKERS = [
-      { face: "excited", size: 84, left: "5%",  top: "7%",  rot: -11, delay: 0 },
-      { face: "sulk",    size: 66, left: "58%", top: "15%", rot: 9,   delay: -0.7 },
-      { face: "sleep",   size: 58, left: "22%", top: "22%", rot: 5,   delay: -1.3 },
-      { face: "angry",   size: 70, left: "3%",  top: "66%", rot: 8,   delay: -1.9 },
-      { face: "sorry",   size: 78, left: "55%", top: "71%", rot: -8,  delay: -2.4 }
+      { face: "excited", size: 70, left: "3%",  top: "4%",  rot: -11, delay: 0 },
+      { face: "happy",   size: 62, left: "55%", top: "3%",  rot: 7,   delay: -0.5 },
+      { face: "sulk",    size: 54, left: "30%", top: "13%", rot: -4,  delay: -1.1 },
+      { face: "shot",    size: 64, left: "64%", top: "16%", rot: 10,  delay: -1.6 },
+      { face: "sleep",   size: 58, left: "2%",  top: "19%", rot: 6,   delay: -2.1 },
+      { face: "wake",    size: 48, left: "0%",  top: "54%", rot: -8,  delay: -0.3 },
+      { face: "cry",     size: 48, left: "73%", top: "53%", rot: 9,   delay: -0.9 },
+      { face: "angry",   size: 66, left: "4%",  top: "66%", rot: 8,   delay: -1.4 },
+      { face: "sorry",   size: 70, left: "52%", top: "68%", rot: -8,  delay: -2.0 },
+      { face: "idle",    size: 56, left: "26%", top: "79%", rot: 5,   delay: -2.5 }
     ];
     for (const st of STICKERS) {
       const pair = document.createElement("div");
