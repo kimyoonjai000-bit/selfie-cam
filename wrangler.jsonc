@@ -1,0 +1,10 @@
+// Cloudflare deploy settings for the app.
+// For now the Worker only serves the existing static files (index.html, icons, manifest).
+// No secrets in this file: API keys go into Cloudflare dashboard secrets only.
+{
+  "name": "wooui",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./"
+  }
+}

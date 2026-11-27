@@ -1,0 +1,10 @@
+# Files that must NOT be served to the browser by Cloudflare
+.git
+.github
+.assetsignore
+wrangler.jsonc
+wrangler.toml
+README.md
+node_modules
+.wrangler
+.gitignore
